@@ -7,4 +7,10 @@ test "consumer can build a themed terminal drawing" {
     assert(screen.revision() > initial_revision)
     var view = Terminal.drawing(screen, Terminal.ViewSettings(cursor_visible:false))
     assert(view.command_count() > 1)
+
+    var retained = Terminal.View(Terminal.ViewSettings(cursor_visible:false))
+    let changed = retained.changed_rows(screen)
+    assert(changed.count() == screen.rows())
+    assert(retained.background_drawing(screen).command_count() == 1)
+    assert(retained.line_drawing(screen, 0).command_count() > 0)
 }

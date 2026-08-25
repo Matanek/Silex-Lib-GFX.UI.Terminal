@@ -20,12 +20,12 @@ static struct Layout {
 
 struct Demo {
     var session:Terminal.Session
-    var display:ECS.Entity? = null
+    var view:Terminal.View
+    var displays:ECS.Entity[]
     var exited:bool = false
-    var revision:int = 0
 }
 
-func view() Terminal.ViewSettings {
+func view_settings() Terminal.ViewSettings {
     return Terminal.ViewSettings(
         cell_width:10.0,
         cell_height:20.0,
@@ -88,16 +88,28 @@ func send_key(session:@Terminal.Session, event:Input.KeyEvent) {
 
 func create_terminal(window:@Resources.Window, world:&Resources.World, demo:&Demo) {
     window.start_text_input()
-    var drawing = Terminal.drawing(demo.session.screen(), view())
-    demo.revision = demo.session.screen().revision()
-    demo.display = world.spawn(ECS.EntityRecipe()
+    var background = demo.view.background_drawing(demo.session.screen())
+    world.spawn(ECS.EntityRecipe()
         ..with(Components.Transform2D())
-        ..with(Components.Canvas(drawing, Layout.width, Layout.height)
+        ..with(Components.Canvas(background, demo.view.width(demo.session.screen()), demo.view.height(demo.session.screen()))
             ..anchor = Math.Vec2(0.5)
             ..pivot = Math.Vec2(0.5)
             ..space = Components.CanvasSpace.viewport
         )
     )
+    let changed = demo.view.changed_rows(demo.session.screen())
+    for row in changed {
+        var drawing = demo.view.line_drawing(demo.session.screen(), row)
+        let display = world.spawn(ECS.EntityRecipe()
+            ..with(Components.Transform2D(position:Math.Vec2(0.0, demo.view.row_y(row))))
+            ..with(Components.Canvas(drawing, demo.view.width(demo.session.screen()), demo.view.row_height())
+                ..anchor = Math.Vec2()
+                ..pivot = Math.Vec2()
+                ..space = Components.CanvasSpace.viewport
+            )
+        )
+        demo.displays.append(display)
+    }
 }
 
 func update_terminal(input:@Resources.InputState, world:&Resources.World, demo:&Demo) {
@@ -112,22 +124,23 @@ func update_terminal(input:@Resources.InputState, world:&Resources.World, demo:&
             success(status) => { if status != null { demo.exited = true } }
         }
     }
-    let revision = demo.session.screen().revision()
-    if revision != demo.revision {
-        var drawing = Terminal.drawing(demo.session.screen(), view())
-        if let display = demo.display {
-            world.update<Components.Canvas>(display, func(canvas:&Components.Canvas) {
-                canvas.replace(drawing)
-            })
-        }
-        demo.revision = revision
+    let changed = demo.view.changed_rows(demo.session.screen())
+    for row in changed {
+        var drawing = demo.view.line_drawing(demo.session.screen(), row)
+        world.update<Components.Canvas>(demo.displays[row], func(canvas:&Components.Canvas) {
+            canvas.replace(drawing)
+        })
     }
 }
 
 func run_terminal() Result<void, Error> {
     var session = try Terminal.spawn(shell_command())
     Application()
-        ..add_resource(Demo(session:session))
+        ..add_resource(Demo(
+            session:session,
+            view:Terminal.View(view_settings()),
+            displays:[]
+        ))
         ..add_plugin(Plugins.Window(Plugins.Window.Settings()
             ..title = "GFX.Terminal — System terminal"
             ..width = Layout.width

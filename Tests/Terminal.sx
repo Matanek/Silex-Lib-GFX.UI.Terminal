@@ -32,6 +32,28 @@ test "terminal views use a monospace font by default" {
     } else { assert(false) }
 }
 
+test "retained terminal views invalidate only changed rows" {
+    var screen = Terminal.Screen(Terminal.Size(columns:12, rows:3))
+    var view = Terminal.View(Terminal.ViewSettings(cursor_visible:true))
+    let initial = view.changed_rows(screen)
+    assert(initial.count() == 3)
+    let unchanged = view.changed_rows(screen)
+    assert(unchanged.count() == 0)
+
+    screen.feed("a")
+    let typed = view.changed_rows(screen)
+    assert(typed.count() == 1)
+    assert(typed[0] == 0)
+    var line = view.line_drawing(screen, typed[0])
+    assert(line.command_count() > 0)
+
+    screen.feed("\n")
+    let moved = view.changed_rows(screen)
+    assert(moved.count() == 2)
+    assert(moved[0] == 0)
+    assert(moved[1] == 1)
+}
+
 test "screen scrolls at its bottom edge" {
     var screen = Terminal.Screen(Terminal.Size(columns:4, rows:2))
     screen.feed("one\ntwo\ntri")

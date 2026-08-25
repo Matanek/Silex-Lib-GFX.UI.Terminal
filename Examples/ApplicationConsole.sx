@@ -19,11 +19,11 @@ static struct Layout {
 
 struct Demo {
     var console:Terminal.Console
-    var display:ECS.Entity? = null
-    var revision:int = 0
+    var view:Terminal.View
+    var displays:ECS.Entity[]
 }
 
-func view() Terminal.ViewSettings {
+func view_settings() Terminal.ViewSettings {
     return Terminal.ViewSettings(
         cell_width:10.0,
         cell_height:20.0,
@@ -33,16 +33,28 @@ func view() Terminal.ViewSettings {
 
 func create_console(window:@Resources.Window, world:&Resources.World, demo:&Demo) {
     window.start_text_input()
-    var drawing = Terminal.drawing(demo.console.screen(), view())
-    demo.revision = demo.console.screen().revision()
-    demo.display = world.spawn(ECS.EntityRecipe()
+    var background = demo.view.background_drawing(demo.console.screen())
+    world.spawn(ECS.EntityRecipe()
         ..with(Components.Transform2D())
-        ..with(Components.Canvas(drawing, Layout.width, Layout.height)
+        ..with(Components.Canvas(background, demo.view.width(demo.console.screen()), demo.view.height(demo.console.screen()))
             ..anchor = Math.Vec2(0.5)
             ..pivot = Math.Vec2(0.5)
             ..space = Components.CanvasSpace.viewport
         )
     )
+    let changed = demo.view.changed_rows(demo.console.screen())
+    for row in changed {
+        var drawing = demo.view.line_drawing(demo.console.screen(), row)
+        let display = world.spawn(ECS.EntityRecipe()
+            ..with(Components.Transform2D(position:Math.Vec2(0.0, demo.view.row_y(row))))
+            ..with(Components.Canvas(drawing, demo.view.width(demo.console.screen()), demo.view.row_height())
+                ..anchor = Math.Vec2()
+                ..pivot = Math.Vec2()
+                ..space = Components.CanvasSpace.viewport
+            )
+        )
+        demo.displays.append(display)
+    }
 }
 
 func execute(command:str, console:&Terminal.Console, controller:&Controller) {
@@ -74,24 +86,25 @@ func update_console(
             else => {}
         }
     }
-    let revision = demo.console.screen().revision()
-    if revision != demo.revision {
-        var drawing = Terminal.drawing(demo.console.screen(), view())
-        if let display = demo.display {
-            world.update<Components.Canvas>(display, func(canvas:&Components.Canvas) {
-                canvas.replace(drawing)
-            })
-        }
-        demo.revision = revision
+    let changed = demo.view.changed_rows(demo.console.screen())
+    for row in changed {
+        var drawing = demo.view.line_drawing(demo.console.screen(), row)
+        world.update<Components.Canvas>(demo.displays[row], func(canvas:&Components.Canvas) {
+            canvas.replace(drawing)
+        })
     }
 }
 
 func main() {
     Application()
-        ..add_resource(Demo(console:Terminal.Console(
-            Terminal.Size(columns:Layout.columns, rows:Layout.rows),
-            prompt:"silex> "
-        )))
+        ..add_resource(Demo(
+            console:Terminal.Console(
+                Terminal.Size(columns:Layout.columns, rows:Layout.rows),
+                prompt:"silex> "
+            ),
+            view:Terminal.View(view_settings()),
+            displays:[]
+        ))
         ..add_plugin(Plugins.Window(Plugins.Window.Settings()
             ..title = "GFX.Terminal — Application console"
             ..width = Layout.width

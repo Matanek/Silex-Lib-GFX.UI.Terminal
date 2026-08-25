@@ -22,6 +22,7 @@ func blank_cell() Cell { return Cell(text:" ", foreground:-1, background:-1, bol
 
 public class Screen {
     private var current_revision:int
+    private var row_revisions:int[]
     private var column_count:int
     private var row_count:int
     private var cells:Cell[]
@@ -38,6 +39,7 @@ public class Screen {
 
     init(size:Size = Size()) {
         self.current_revision = 0
+        self.row_revisions = []
         self.column_count = size.columns
         self.row_count = size.rows
         self.cells = []
@@ -77,7 +79,7 @@ public class Screen {
         while index < self.column_count * self.row_count { self.cells.append(blank_cell()); index++ }
         self.cursor_column = 0
         self.cursor_row = 0
-        self.current_revision++
+        self.touch_all_rows()
     }
 
     func resize(size:Size) {
@@ -103,22 +105,27 @@ public class Screen {
         self.cells = resized
         self.cursor_column = min_int(self.cursor_column, self.column_count - 1)
         self.cursor_row = min_int(self.cursor_row, self.row_count - 1)
-        self.current_revision++
+        self.touch_all_rows()
     }
 
     func erase_previous() {
         if self.cursor_column <= 0 { return }
         self.cursor_column--
         self.cells[self.cursor_row * self.column_count + self.cursor_column] = blank_cell()
-        self.current_revision++
+        self.touch_row(self.cursor_row)
     }
 
     func feed(value:str) { self.feed(UTF8.bytes(value)) }
     func feed(value:uint8[]) {
         if value.count() == 0 { return }
+        let previous_column = self.cursor_column
+        let previous_row = self.cursor_row
         for byte in value { self.consume(byte) }
         self.flush_utf8(false)
-        self.current_revision++
+        if previous_column != self.cursor_column || previous_row != self.cursor_row {
+            self.touch_row(previous_row)
+            if previous_row != self.cursor_row { self.touch_row(self.cursor_row) }
+        }
     }
 
     private func consume(byte:uint8) {
@@ -189,6 +196,7 @@ public class Screen {
     private func put(text:str) {
         if self.cursor_column >= self.column_count { self.newline() }
         self.cells[self.cursor_row * self.column_count + self.cursor_column] = Cell(text:text, foreground:self.foreground, background:self.background, bold:self.bold)
+        self.touch_row(self.cursor_row)
         self.cursor_column++
     }
 
@@ -202,6 +210,7 @@ public class Screen {
         while shifted.count() < self.column_count * self.row_count { shifted.append(blank_cell()) }
         self.cells = shifted
         self.cursor_row = self.row_count - 1
+        self.touch_all_rows()
     }
 
     private func push_parameter() {
@@ -240,6 +249,7 @@ public class Screen {
         if mode == 2 { first = 0; last = self.column_count - 1 }
         var column = first
         while column <= last { self.cells[self.cursor_row * self.column_count + column] = blank_cell(); column++ }
+        self.touch_row(self.cursor_row)
     }
 
     private func apply_sgr() {
@@ -253,6 +263,27 @@ public class Screen {
             elif value == 49 { self.background = -1 }
             elif value >= 90 && value <= 97 { self.foreground = value - 90 + 8 }
             elif value >= 100 && value <= 107 { self.background = value - 100 + 8 }
+        }
+    }
+
+    module func row_revision(row:int) int {
+        if row < 0 || row >= self.row_count { panic("terminal row revision is outside the screen") }
+        return self.row_revisions[row]
+    }
+
+    private func touch_row(row:int) {
+        if row < 0 || row >= self.row_count { return }
+        self.current_revision++
+        self.row_revisions[row] = self.current_revision
+    }
+
+    private func touch_all_rows() {
+        self.current_revision++
+        self.row_revisions = []
+        var row = 0
+        while row < self.row_count {
+            self.row_revisions.append(self.current_revision)
+            row++
         }
     }
 }
@@ -413,6 +444,82 @@ public struct ViewSettings {
     }
 }
 
+// Retains the per-row revisions consumed by a terminal presentation. A caller
+// can keep one Canvas entity per returned row so a key echo only rerasterizes
+// the line that actually changed.
+public class View {
+    private var view_settings:ViewSettings
+    private var column_count:int
+    private var row_count:int
+    private var retained_revisions:int[]
+
+    init(settings:ViewSettings = ViewSettings()) {
+        self.view_settings = settings
+        self.column_count = -1
+        self.row_count = -1
+        self.retained_revisions = []
+    }
+
+    func settings() ViewSettings { return self.view_settings }
+
+    func width(screen:@Screen) int {
+        return Math.ceil(self.view_settings.padding * 2.0 + screen.columns() as float * self.view_settings.cell_width) as int
+    }
+
+    func height(screen:@Screen) int {
+        return Math.ceil(self.view_settings.padding * 2.0 + screen.rows() as float * self.view_settings.cell_height) as int
+    }
+
+    func row_height() int { return Math.ceil(self.view_settings.cell_height) as int }
+
+    func row_y(row:int) float {
+        if row < 0 { panic("terminal view row cannot be negative") }
+        return self.view_settings.padding + row as float * self.view_settings.cell_height
+    }
+
+    func background_drawing(screen:@Screen) Canvas.Canvas {
+        let width = self.width(screen) as float
+        let height = self.height(screen) as float
+        let color = self.view_settings.theme.background
+        var result = Canvas.Canvas()
+        result.paint(func(painter:&Canvas.Painter) {
+            painter.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(width, height)), Canvas.Fill.solid(color))
+        })
+        return result
+    }
+
+    func changed_rows(screen:@Screen) int[] {
+        if self.column_count != screen.columns() || self.row_count != screen.rows() {
+            self.column_count = screen.columns()
+            self.row_count = screen.rows()
+            self.retained_revisions = []
+            var row = 0
+            while row < self.row_count { self.retained_revisions.append(-1); row++ }
+        }
+        var changed:int[] = []
+        var row = 0
+        while row < self.row_count {
+            let revision = screen.row_revision(row)
+            if revision != self.retained_revisions[row] {
+                changed.append(row)
+                self.retained_revisions[row] = revision
+            }
+            row++
+        }
+        return changed
+    }
+
+    func line_drawing(screen:@Screen, row:int) Canvas.Canvas {
+        if row < 0 || row >= screen.rows() { panic("terminal view line is outside the screen") }
+        var settings = self.view_settings
+        var result = Canvas.Canvas()
+        result.paint(func(painter:&Canvas.Painter) {
+            paint_row(painter, screen, row, settings, Math.Vec2(settings.padding, 0.0))
+        })
+        return result
+    }
+}
+
 public func drawing(screen:@Screen, settings:ViewSettings = ViewSettings()) Canvas.Canvas {
     let width = settings.padding * 2.0 + screen.columns() as float * settings.cell_width
     let height = settings.padding * 2.0 + screen.rows() as float * settings.cell_height
@@ -421,24 +528,36 @@ public func drawing(screen:@Screen, settings:ViewSettings = ViewSettings()) Canv
         painter.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(width, height)), Canvas.Fill.solid(settings.theme.background))
         var row = 0
         while row < screen.rows() {
-            var column = 0
-            while column < screen.columns() {
-                let cell = screen.cell(column, row)
-                let position = Math.Vec2(settings.padding + column as float * settings.cell_width, settings.padding + row as float * settings.cell_height)
-                if cell.background >= 0 { painter.fill(Canvas.Rect(position, Math.Vec2(settings.cell_width, settings.cell_height)), Canvas.Fill.solid(settings.theme.color(cell.background, settings.theme.background))) }
-                if cell.text != " " {
-                    var weight = Canvas.TextWeight.regular
-                    if cell.bold { weight = Canvas.TextWeight.bold }
-                    painter.text(cell.text, position, Canvas.TextStyle(size:settings.font_size, color:settings.theme.color(cell.foreground, settings.theme.foreground), weight:weight, font:settings.font))
-                }
-                column++
-            }
+            paint_row(painter, screen, row, settings, Math.Vec2(settings.padding, settings.padding + row as float * settings.cell_height))
             row++
-        }
-        if settings.cursor_visible {
-            let cursor = Math.Vec2(settings.padding + screen.cursor_x() as float * settings.cell_width, settings.padding + (screen.cursor_y() + 1) as float * settings.cell_height - 2.0)
-            painter.fill(Canvas.Rect(cursor, Math.Vec2(settings.cell_width, 2.0)), Canvas.Fill.solid(settings.theme.cursor))
         }
     })
     return result
+}
+
+func paint_row(
+    painter:&Canvas.Painter,
+    screen:@Screen,
+    row:int,
+    settings:ViewSettings,
+    origin:Math.Vec2
+) {
+    var column = 0
+    while column < screen.columns() {
+        let cell = screen.cell(column, row)
+        let position = Math.Vec2(origin.x + column as float * settings.cell_width, origin.y)
+        if cell.background >= 0 {
+            painter.fill(Canvas.Rect(position, Math.Vec2(settings.cell_width, settings.cell_height)), Canvas.Fill.solid(settings.theme.color(cell.background, settings.theme.background)))
+        }
+        if cell.text != " " {
+            var weight = Canvas.TextWeight.regular
+            if cell.bold { weight = Canvas.TextWeight.bold }
+            painter.text(cell.text, position, Canvas.TextStyle(size:settings.font_size, color:settings.theme.color(cell.foreground, settings.theme.foreground), weight:weight, font:settings.font))
+        }
+        column++
+    }
+    if settings.cursor_visible && screen.cursor_y() == row {
+        let cursor = Math.Vec2(origin.x + screen.cursor_x() as float * settings.cell_width, origin.y + settings.cell_height - 2.0)
+        painter.fill(Canvas.Rect(cursor, Math.Vec2(settings.cell_width, 2.0)), Canvas.Fill.solid(settings.theme.cursor))
+    }
 }

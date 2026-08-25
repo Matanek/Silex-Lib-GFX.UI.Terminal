@@ -12,7 +12,7 @@ func populated_screen() Terminal.Screen {
     return screen
 }
 
-func render(screen:@Terminal.Screen) int {
+func render_full(screen:@Terminal.Screen) int {
     var drawing = Terminal.drawing(screen)
     var snapshot = drawing.snapshot(1024, 624)
     let text = snapshot.text()
@@ -22,36 +22,48 @@ func render(screen:@Terminal.Screen) int {
 }
 
 func main() {
-    var screen = populated_screen()
-    let command_count = render(screen)
+    var full_screen = populated_screen()
+    let command_count = render_full(full_screen)
 
-    var always = Stopwatch()
-    always.start()
+    var full = Stopwatch()
+    full.start()
     var frame = 0
-    while frame < 10 { render(screen); frame++ }
-    always.stop()
+    while frame < 10 {
+        full_screen.feed("x")
+        render_full(full_screen)
+        frame++
+    }
+    full.stop()
 
-    var gated = Stopwatch()
-    gated.start()
-    var last_revision = -1
-    var redraws = 0
+    var incremental_screen = populated_screen()
+    var view = Terminal.View()
+    for row in view.changed_rows(incremental_screen) {
+        var initial = view.line_drawing(incremental_screen, row)
+        var snapshot = initial.snapshot(view.width(incremental_screen), view.row_height())
+        let text = snapshot.text()
+    }
+
+    var incremental = Stopwatch()
+    incremental.start()
+    var rendered_rows = 0
     frame = 0
     while frame < 10 {
-        let revision = screen.revision()
-        if revision != last_revision {
-            render(screen)
-            last_revision = revision
-            redraws++
+        incremental_screen.feed("x")
+        for row in view.changed_rows(incremental_screen) {
+            var drawing = view.line_drawing(incremental_screen, row)
+            var snapshot = drawing.snapshot(view.width(incremental_screen), view.row_height())
+            let text = snapshot.text()
+            rendered_rows++
         }
         frame++
     }
-    gated.stop()
+    incremental.stop()
 
-    assert(redraws == 1)
+    assert(rendered_rows == 10)
     print(
-        "always_10_frames_ms=", always.get_elapsed_milliseconds(),
-        " gated_10_frames_ms=", gated.get_elapsed_milliseconds(),
-        " redraws=", redraws,
+        "full_10_keys_ms=", full.get_elapsed_milliseconds(),
+        " incremental_10_keys_ms=", incremental.get_elapsed_milliseconds(),
+        " rendered_rows=", rendered_rows,
         " commands=", command_count
     )
 }
