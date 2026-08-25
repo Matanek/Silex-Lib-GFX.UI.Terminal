@@ -1,0 +1,8 @@
+use GFX.Terminal
+
+test "consumer can build a themed terminal drawing" {
+    var screen = Terminal.Screen(Terminal.Size(columns:20, rows:4))
+    screen.feed("Silex terminal")
+    var view = Terminal.drawing(screen, Terminal.ViewSettings(cursor_visible:false))
+    assert(view.command_count() > 1)
+}

@@ -1,0 +1,81 @@
+use GFX.Terminal
+use STD.Text
+use STD.Console
+use STD.Error
+use STD.Process
+
+test "screen interprets cursor movement colors and UTF-8" {
+    var screen = Terminal.Screen(Terminal.Size(columns:12, rows:3))
+    screen.feed("hello")
+    screen.feed("\nmonde")
+    screen.feed("\u{1b}[1;1H\u{1b}[31mR\u{1b}[0m")
+    screen.feed("\u{1b}[?25l\u{1b}]0;hidden title\u{7}")
+    assert(Text.starts_with(screen.line(0), "Rello"))
+    assert(Text.starts_with(screen.line(1), "monde"))
+    assert(screen.cell(0, 0).foreground == 1)
+    var drawing = Terminal.drawing(screen)
+    assert(drawing.command_count() > 2)
+}
+
+test "screen scrolls at its bottom edge" {
+    var screen = Terminal.Screen(Terminal.Size(columns:4, rows:2))
+    screen.feed("one\ntwo\ntri")
+    assert(Text.starts_with(screen.line(0), "two"))
+    assert(Text.starts_with(screen.line(1), "tri"))
+}
+
+test "screen preserves its visible cells when resized" {
+    var screen = Terminal.Screen(Terminal.Size(columns:4, rows:2))
+    screen.feed("one\ntwo")
+    screen.resize(Terminal.Size(columns:6, rows:3))
+    assert(Text.starts_with(screen.line(0), "one"))
+    assert(Text.starts_with(screen.line(1), "two"))
+}
+
+test "application console returns host commands without spawning a shell" {
+    var console = Terminal.Console(Terminal.Size(columns:24, rows:3), prompt:"silex> ")
+    console.type("reload")
+    console.backspace()
+    console.type("d")
+    assert(console.input() == "reload")
+    assert(console.submit() == "reload")
+    console.write_line("application ready")
+    assert(Text.contains(console.screen().line(1), "application ready"))
+}
+
+test "system session feeds the shared terminal screen" {
+    func child() {
+        if value = Console.read_line() { Console.write("\u{1b}[32msystem:" + value + "\u{1b}[0m") }
+    }
+    func parent(executable:str) Result<void, Error> {
+        let command = Terminal.Command(
+            executable:executable,
+            arguments:["--gfx-terminal-child"],
+            current_directory:null,
+            inherit_environment:true,
+            environment:[Terminal.EnvironmentChange.set("TERM", "xterm-256color")],
+            size:Terminal.Size(columns:40, rows:4)
+        )
+        var session = try Terminal.spawn(command)
+        try session.write("ready\n")
+        var exited = false
+        var attempts = 0
+        while !exited && attempts < 40 {
+            let status = try session.update(250)
+            if value = status { exited = true }
+            attempts++
+        }
+        assert(exited)
+        var visible = ""
+        var row = 0
+        while row < session.screen().rows() { visible = visible + session.screen().line(row); row++ }
+        assert(Text.contains(visible, "system:ready"))
+        return Result<void, Error>.success()
+    }
+    func dispatch() Result<void, Error> {
+        let arguments = try Process.arguments()
+        if arguments.count() > 1 && arguments[1] == "--gfx-terminal-child" { child(); return Result<void, Error>.success() }
+        return parent(try Process.executable_path())
+    }
+    match dispatch() { failure(error) => { panic(error.operation + ": " + error.detail) }; success => {} }
+}

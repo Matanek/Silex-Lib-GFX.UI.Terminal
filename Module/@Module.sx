@@ -1,0 +1,432 @@
+use GFX.Canvas
+use GFX.Color
+use STD.Error
+use STD.Math
+use STD.Subprocess
+use STD.Text
+use STD.Text.UTF8
+
+public use STD.Subprocess.EnvironmentChange
+public use STD.Subprocess.ExitStatus
+public use STD.Subprocess.TerminalCommand as Command
+public use STD.Subprocess.TerminalSize as Size
+
+public struct Cell {
+    let text:str
+    let foreground:int
+    let background:int
+    let bold:bool
+}
+
+func blank_cell() Cell { return Cell(text:" ", foreground:-1, background:-1, bold:false) }
+
+public class Screen {
+    private var column_count:int
+    private var row_count:int
+    private var cells:Cell[]
+    private var cursor_column:int
+    private var cursor_row:int
+    private var foreground:int
+    private var background:int
+    private var bold:bool
+    private var state:int
+    private var parameters:int[]
+    private var parameter:int
+    private var has_parameter:bool
+    private var utf8:uint8[]
+
+    init(size:Size = Size()) {
+        self.column_count = size.columns
+        self.row_count = size.rows
+        self.cells = []
+        self.cursor_column = 0
+        self.cursor_row = 0
+        self.foreground = -1
+        self.background = -1
+        self.bold = false
+        self.state = 0
+        self.parameters = []
+        self.parameter = 0
+        self.has_parameter = false
+        self.utf8 = []
+        self.clear()
+    }
+
+    func columns() int { return self.column_count }
+    func rows() int { return self.row_count }
+    func cursor_x() int { return self.cursor_column }
+    func cursor_y() int { return self.cursor_row }
+    func cell(column:int, row:int) Cell {
+        if column < 0 || column >= self.column_count || row < 0 || row >= self.row_count { panic("terminal cell is outside the screen") }
+        return self.cells[row * self.column_count + column]
+    }
+    func line(row:int) str {
+        if row < 0 || row >= self.row_count { panic("terminal line is outside the screen") }
+        var value = ""
+        var column = 0
+        while column < self.column_count { value = value + self.cell(column, row).text; column++ }
+        return value
+    }
+
+    func clear() {
+        self.cells = []
+        var index = 0
+        while index < self.column_count * self.row_count { self.cells.append(blank_cell()); index++ }
+        self.cursor_column = 0
+        self.cursor_row = 0
+    }
+
+    func resize(size:Size) {
+        let previous_columns = self.column_count
+        let previous_rows = self.row_count
+        let previous_cells = self.cells
+        var resized:Cell[] = []
+        var index = 0
+        while index < size.columns * size.rows { resized.append(blank_cell()); index++ }
+        let copied_columns = min_int(previous_columns, size.columns)
+        let copied_rows = min_int(previous_rows, size.rows)
+        var row = 0
+        while row < copied_rows {
+            var column = 0
+            while column < copied_columns {
+                resized[row * size.columns + column] = previous_cells[row * previous_columns + column]
+                column++
+            }
+            row++
+        }
+        self.column_count = size.columns
+        self.row_count = size.rows
+        self.cells = resized
+        self.cursor_column = min_int(self.cursor_column, self.column_count - 1)
+        self.cursor_row = min_int(self.cursor_row, self.row_count - 1)
+    }
+
+    func erase_previous() {
+        if self.cursor_column <= 0 { return }
+        self.cursor_column--
+        self.cells[self.cursor_row * self.column_count + self.cursor_column] = blank_cell()
+    }
+
+    func feed(value:str) { self.feed(UTF8.bytes(value)) }
+    func feed(value:uint8[]) {
+        for byte in value { self.consume(byte) }
+        self.flush_utf8(false)
+    }
+
+    private func consume(byte:uint8) {
+        if self.state == 1 {
+            if byte == 91 { self.state = 2; self.parameters = []; self.parameter = 0; self.has_parameter = false }
+            elif byte == 93 { self.state = 3 }
+            else { self.state = 0 }
+            return
+        }
+        if self.state == 2 {
+            if byte >= 48 && byte <= 57 { self.parameter = self.parameter * 10 + (byte - 48) as int; self.has_parameter = true; return }
+            if byte == 59 { self.push_parameter(); return }
+            if (byte >= 32 && byte <= 47) || (byte >= 60 && byte <= 63) { return }
+            if byte >= 64 && byte <= 126 { self.push_parameter(); self.apply_csi(byte) }
+            self.state = 0
+            return
+        }
+        if self.state == 3 {
+            if byte == 7 { self.state = 0 }
+            elif byte == 27 { self.state = 4 }
+            return
+        }
+        if self.state == 4 {
+            if byte == 92 { self.state = 0 }
+            elif byte != 27 { self.state = 3 }
+            return
+        }
+        if byte == 27 { self.flush_utf8(true); self.state = 1; return }
+        if byte == 13 { self.flush_utf8(true); self.cursor_column = 0; return }
+        if byte == 10 { self.flush_utf8(true); self.newline(); return }
+        if byte == 8 {
+            self.flush_utf8(true)
+            if self.cursor_column > 0 { self.cursor_column-- }
+            return
+        }
+        if byte == 9 { self.flush_utf8(true); self.cursor_column = min_int(((self.cursor_column / 8) + 1) * 8, self.column_count - 1); return }
+        if byte < 32 { self.flush_utf8(true); return }
+        self.utf8.append(byte)
+        self.flush_utf8(false)
+    }
+
+    private func flush_utf8(force:bool) {
+        var progress = true
+        while progress && self.utf8.count() > 0 {
+            progress = false
+            let needed = utf8_length(self.utf8[0])
+            if needed == 0 { self.put("?"); self.drop_utf8(1); progress = true }
+            elif self.utf8.count() >= needed {
+                var encoded:uint8[] = []
+                var index = 0
+                while index < needed { encoded.append(self.utf8[index]); index++ }
+                let view = @encoded[0:encoded.count()]
+                match UTF8.decode(view) { failure(error) => { self.put("?") }; success(text) => { self.put(text) } }
+                self.drop_utf8(needed)
+                progress = true
+            }
+        }
+        if force && self.utf8.count() > 0 { self.put("?"); self.utf8 = [] }
+    }
+
+    private func drop_utf8(count:int) {
+        var remaining:uint8[] = []
+        var index = count
+        while index < self.utf8.count() { remaining.append(self.utf8[index]); index++ }
+        self.utf8 = remaining
+    }
+
+    private func put(text:str) {
+        if self.cursor_column >= self.column_count { self.newline() }
+        self.cells[self.cursor_row * self.column_count + self.cursor_column] = Cell(text:text, foreground:self.foreground, background:self.background, bold:self.bold)
+        self.cursor_column++
+    }
+
+    private func newline() {
+        self.cursor_column = 0
+        self.cursor_row++
+        if self.cursor_row < self.row_count { return }
+        var shifted:Cell[] = []
+        var index = self.column_count
+        while index < self.cells.count() { shifted.append(self.cells[index]); index++ }
+        while shifted.count() < self.column_count * self.row_count { shifted.append(blank_cell()) }
+        self.cells = shifted
+        self.cursor_row = self.row_count - 1
+    }
+
+    private func push_parameter() {
+        if self.has_parameter { self.parameters.append(self.parameter) } else { self.parameters.append(0) }
+        self.parameter = 0
+        self.has_parameter = false
+    }
+
+    private func parameter_at(index:int, fallback:int) int {
+        if index >= self.parameters.count() || self.parameters[index] == 0 { return fallback }
+        return self.parameters[index]
+    }
+
+    private func apply_csi(final_byte:uint8) {
+        if final_byte == 65 { self.cursor_row = max_int(0, self.cursor_row - self.parameter_at(0, 1)); return }
+        if final_byte == 66 { self.cursor_row = min_int(self.row_count - 1, self.cursor_row + self.parameter_at(0, 1)); return }
+        if final_byte == 67 { self.cursor_column = min_int(self.column_count - 1, self.cursor_column + self.parameter_at(0, 1)); return }
+        if final_byte == 68 { self.cursor_column = max_int(0, self.cursor_column - self.parameter_at(0, 1)); return }
+        if final_byte == 72 || final_byte == 102 {
+            self.cursor_row = min_int(self.row_count - 1, self.parameter_at(0, 1) - 1)
+            self.cursor_column = min_int(self.column_count - 1, self.parameter_at(1, 1) - 1)
+            return
+        }
+        if final_byte == 74 {
+            if self.parameter_at(0, 0) == 2 { self.clear() }
+            return
+        }
+        if final_byte == 75 { self.erase_line(self.parameter_at(0, 0)); return }
+        if final_byte == 109 { self.apply_sgr(); return }
+    }
+
+    private func erase_line(mode:int) {
+        var first = self.cursor_column
+        var last = self.column_count - 1
+        if mode == 1 { first = 0; last = self.cursor_column }
+        if mode == 2 { first = 0; last = self.column_count - 1 }
+        var column = first
+        while column <= last { self.cells[self.cursor_row * self.column_count + column] = blank_cell(); column++ }
+    }
+
+    private func apply_sgr() {
+        for value in self.parameters {
+            if value == 0 { self.foreground = -1; self.background = -1; self.bold = false }
+            elif value == 1 { self.bold = true }
+            elif value == 22 { self.bold = false }
+            elif value >= 30 && value <= 37 { self.foreground = value - 30 }
+            elif value == 39 { self.foreground = -1 }
+            elif value >= 40 && value <= 47 { self.background = value - 40 }
+            elif value == 49 { self.background = -1 }
+            elif value >= 90 && value <= 97 { self.foreground = value - 90 + 8 }
+            elif value >= 100 && value <= 107 { self.background = value - 100 + 8 }
+        }
+    }
+}
+
+func utf8_length(first:uint8) int {
+    if first < 128 { return 1 }
+    if first >= 194 && first <= 223 { return 2 }
+    if first >= 224 && first <= 239 { return 3 }
+    if first >= 240 && first <= 244 { return 4 }
+    return 0
+}
+
+func min_int(left:int, right:int) int {
+    if left < right { return left }
+    return right
+}
+func max_int(left:int, right:int) int {
+    if left > right { return left }
+    return right
+}
+
+public class Session {
+    private var child:Subprocess.TerminalChild? = null
+    private var terminal_screen:Screen
+
+    module init(child:Subprocess.TerminalChild, size:Size) { self.child = child; self.terminal_screen = Screen(size) }
+    func screen() @Screen { return self.terminal_screen }
+    func write(text:str) Result<void, Error> {
+        let bytes = UTF8.bytes(text)
+        var offset = 0
+        while offset < bytes.count() {
+            let view = @bytes[offset:bytes.count()]
+            if var active = self.child {
+                match active.write(view) {
+                    failure(error) => { return Result<void, Error>.failure(error) }
+                    success(count) => { offset += count }
+                }
+            } else { panic("terminal session has no child") }
+        }
+        return Result<void, Error>.success()
+    }
+    func resize(size:Size) Result<void, Error> {
+        if var active = self.child {
+            match active.resize(size) {
+                failure(error) => { return Result<void, Error>.failure(error) }
+                success => {}
+            }
+        } else { panic("terminal session has no child") }
+        self.terminal_screen.resize(size)
+        return Result<void, Error>.success()
+    }
+    func update(timeout_milliseconds:int = 0) Result<ExitStatus?, Error> {
+        var wait = timeout_milliseconds
+        var attempts = 0
+        while attempts < 32 {
+            var next:Subprocess.Event? = null
+            if var active = self.child {
+                match active.next_event(wait) {
+                    failure(error) => { return Result<ExitStatus?, Error>.failure(error) }
+                    success(event) => { next = event }
+                }
+            } else { panic("terminal session has no child") }
+            wait = 0
+            if event = next {
+                match event {
+                    output(stream, bytes) => { self.terminal_screen.feed(bytes) }
+                    exited(status) => { return Result<ExitStatus?, Error>.success(status) }
+                }
+            } else { return Result<ExitStatus?, Error>.success(null) }
+            attempts++
+        }
+        return Result<ExitStatus?, Error>.success(null)
+    }
+    func terminate() Result<void, Error> {
+        if var active = self.child { return active.terminate() }
+        return Result<void, Error>.success()
+    }
+    func is_running() bool {
+        if let active = self.child { return active.is_running() }
+        return false
+    }
+}
+
+public func spawn(command:Command) Result<Session, Error> {
+    let size = command.size
+    return Result<Session, Error>.success(Session(try Subprocess.spawn_terminal(command), size))
+}
+
+public class Console {
+    private var console_screen:Screen
+    private var current_input:str
+    private let prompt_text:str
+
+    init(size:Size = Size(), prompt:str = "> ") {
+        self.console_screen = Screen(size)
+        self.current_input = ""
+        self.prompt_text = prompt
+        self.console_screen.feed(prompt)
+    }
+
+    func screen() @Screen { return self.console_screen }
+    func input() str { return self.current_input }
+    func write(value:str) { self.console_screen.feed(value) }
+    func write_line(value:str) { self.console_screen.feed(value + "\n") }
+    func type(value:str) { self.current_input = self.current_input + value; self.console_screen.feed(value) }
+    func backspace() {
+        let count = self.current_input.count()
+        if count == 0 { return }
+        self.current_input = Text.slice(self.current_input, 0, count - 1)
+        self.console_screen.erase_previous()
+    }
+    func submit() str {
+        let command = self.current_input
+        self.current_input = ""
+        self.console_screen.feed("\n" + self.prompt_text)
+        return command
+    }
+    func clear() { self.console_screen.clear(); self.console_screen.feed(self.prompt_text + self.current_input) }
+    func resize(size:Size) { self.console_screen.resize(size) }
+}
+
+public struct Theme {
+    let foreground:Color
+    let background:Color
+    let cursor:Color
+    let palette:Color[]
+
+    init(foreground:Color = Color.slate_100(), background:Color = Color.slate_950(), cursor:Color = Color.cyan_300(), palette:Color[] = default_palette()) {
+        if palette.count() != 16 { panic("terminal theme requires exactly 16 ANSI colors") }
+        self.foreground = foreground; self.background = background; self.cursor = cursor; self.palette = palette
+    }
+    func color(index:int, fallback:Color) Color {
+        if index >= 0 && index < 16 { return self.palette[index] }
+        return fallback
+    }
+}
+
+func default_palette() Color[] {
+    return [Color.bytes(30, 30, 30), Color.bytes(205, 49, 49), Color.bytes(13, 188, 121), Color.bytes(229, 229, 16), Color.bytes(36, 114, 200), Color.bytes(188, 63, 188), Color.bytes(17, 168, 205), Color.bytes(229, 229, 229), Color.bytes(102, 102, 102), Color.bytes(241, 76, 76), Color.bytes(35, 209, 139), Color.bytes(245, 245, 67), Color.bytes(59, 142, 234), Color.bytes(214, 112, 214), Color.bytes(41, 184, 219), Color.bytes(255, 255, 255)]
+}
+
+public struct ViewSettings {
+    let theme:Theme
+    var font:Canvas.Font? = null
+    let font_size:float
+    let cell_width:float
+    let cell_height:float
+    let padding:float
+    let cursor_visible:bool
+
+    init(theme:Theme = Theme(), font:Canvas.Font? = null, font_size:float = 16.0, cell_width:float = 9.5, cell_height:float = 20.0, padding:float = 12.0, cursor_visible:bool = true) {
+        if font_size <= 0.0 || cell_width <= 0.0 || cell_height <= 0.0 || padding < 0.0 { panic("terminal view dimensions are invalid") }
+        self.theme = theme; self.font = font; self.font_size = font_size; self.cell_width = cell_width; self.cell_height = cell_height; self.padding = padding; self.cursor_visible = cursor_visible
+    }
+}
+
+public func drawing(screen:@Screen, settings:ViewSettings = ViewSettings()) Canvas.Canvas {
+    let width = settings.padding * 2.0 + screen.columns() as float * settings.cell_width
+    let height = settings.padding * 2.0 + screen.rows() as float * settings.cell_height
+    var result = Canvas.Canvas()
+    result.paint(func(painter:&Canvas.Painter) {
+        painter.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(width, height)), Canvas.Fill.solid(settings.theme.background))
+        var row = 0
+        while row < screen.rows() {
+            var column = 0
+            while column < screen.columns() {
+                let cell = screen.cell(column, row)
+                let position = Math.Vec2(settings.padding + column as float * settings.cell_width, settings.padding + row as float * settings.cell_height)
+                if cell.background >= 0 { painter.fill(Canvas.Rect(position, Math.Vec2(settings.cell_width, settings.cell_height)), Canvas.Fill.solid(settings.theme.color(cell.background, settings.theme.background))) }
+                if cell.text != " " {
+                    var weight = Canvas.TextWeight.regular
+                    if cell.bold { weight = Canvas.TextWeight.bold }
+                    painter.text(cell.text, position, Canvas.TextStyle(size:settings.font_size, color:settings.theme.color(cell.foreground, settings.theme.foreground), weight:weight, font:settings.font))
+                }
+                column++
+            }
+            row++
+        }
+        if settings.cursor_visible {
+            let cursor = Math.Vec2(settings.padding + screen.cursor_x() as float * settings.cell_width, settings.padding + (screen.cursor_y() + 1) as float * settings.cell_height - 2.0)
+            painter.fill(Canvas.Rect(cursor, Math.Vec2(settings.cell_width, 2.0)), Canvas.Fill.solid(settings.theme.cursor))
+        }
+    })
+    return result
+}
