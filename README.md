@@ -8,7 +8,8 @@ another operating-system terminal window.
 The package has two explicit modes: `Terminal.Console` for an
 application-owned command/log console, and `Terminal.Session` for a real
 system shell or TUI connected through PTY/ConPTY. Both share the same screen,
-theme and Canvas renderer.
+theme and Canvas renderer. The renderer uses the bundled
+`Canvas.Font.monospace()` by default and accepts any custom `Canvas.Font`.
 
 ```sx
 use GFX.Terminal

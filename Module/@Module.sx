@@ -396,9 +396,12 @@ public struct ViewSettings {
     let padding:float
     let cursor_visible:bool
 
-    init(theme:Theme = Theme(), font:Canvas.Font? = null, font_size:float = 16.0, cell_width:float = 9.5, cell_height:float = 20.0, padding:float = 12.0, cursor_visible:bool = true) {
+    init(theme:Theme = Theme(), font:Canvas.Font? = null, font_size:float = 16.0, cell_width:float = 10.0, cell_height:float = 20.0, padding:float = 12.0, cursor_visible:bool = true) {
         if font_size <= 0.0 || cell_width <= 0.0 || cell_height <= 0.0 || padding < 0.0 { panic("terminal view dimensions are invalid") }
-        self.theme = theme; self.font = font; self.font_size = font_size; self.cell_width = cell_width; self.cell_height = cell_height; self.padding = padding; self.cursor_visible = cursor_visible
+        self.theme = theme
+        self.font = Canvas.Font.monospace()
+        if let custom_font = font { self.font = custom_font }
+        self.font_size = font_size; self.cell_width = cell_width; self.cell_height = cell_height; self.padding = padding; self.cursor_visible = cursor_visible
     }
 }
 

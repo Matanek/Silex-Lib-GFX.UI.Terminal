@@ -20,8 +20,9 @@ width are explicit future extensions.
 
 `drawing(screen, settings)` returns ordinary `GFX.Canvas.Canvas` content. An
 IDE may place it in a `GFX.Scene2D.Canvas`, refresh it after `Session.update`,
-and route `GFX.Input` text/key events to `Session.write`. `Theme`, font, cell
-dimensions, padding and cursor visibility remain application-controlled.
+and route `GFX.Input` text/key events to `Session.write`. The view uses
+`Canvas.Font.monospace()` by default; `Theme`, a custom font, cell dimensions,
+padding and cursor visibility remain application-controlled.
 
 The [application console](../Examples/ApplicationConsole.sx) and
 [system terminal](../Examples/SystemTerminal.sx) examples show the complete

@@ -1,4 +1,5 @@
 use GFX.Terminal
+use GFX.Canvas
 use STD.Text
 use STD.Console
 use STD.Error
@@ -15,6 +16,18 @@ test "screen interprets cursor movement colors and UTF-8" {
     assert(screen.cell(0, 0).foreground == 1)
     var drawing = Terminal.drawing(screen)
     assert(drawing.command_count() > 2)
+}
+
+test "terminal views use a monospace font by default" {
+    var drawing = Canvas.Canvas()
+    var settings = Terminal.ViewSettings()
+    if let font = settings.font {
+        var style = Canvas.TextStyle(size:settings.font_size, font:font)
+        let narrow = drawing.measure_text("iiii", style)
+        let wide = drawing.measure_text("mmmm", style)
+        assert(narrow.width == wide.width)
+        assert(settings.cell_width == 10.0)
+    } else { assert(false) }
 }
 
 test "screen scrolls at its bottom edge" {
