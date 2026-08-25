@@ -24,6 +24,10 @@ and route `GFX.Input` text/key events to `Session.write`. The view uses
 `Canvas.Font.monospace()` by default; `Theme`, a custom font, cell dimensions,
 padding and cursor visibility remain application-controlled.
 
+`Screen.revision()` changes whenever visible cells or the cursor may have
+changed. Retained integrations should compare it with their last rendered
+revision and call `Canvas.replace` only when it advances.
+
 The [application console](../Examples/ApplicationConsole.sx) and
 [system terminal](../Examples/SystemTerminal.sx) examples show the complete
 window, input, Scene2D Canvas and redraw integration.

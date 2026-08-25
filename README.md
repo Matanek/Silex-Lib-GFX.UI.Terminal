@@ -10,6 +10,8 @@ application-owned command/log console, and `Terminal.Session` for a real
 system shell or TUI connected through PTY/ConPTY. Both share the same screen,
 theme and Canvas renderer. The renderer uses the bundled
 `Canvas.Font.monospace()` by default and accepts any custom `Canvas.Font`.
+Retained views can observe `Screen.revision()` and skip rebuilding unchanged
+terminal content.
 
 ```sx
 use GFX.Terminal

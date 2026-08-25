@@ -22,6 +22,7 @@ struct Demo {
     var session:Terminal.Session
     var display:ECS.Entity? = null
     var exited:bool = false
+    var revision:int = 0
 }
 
 func view() Terminal.ViewSettings {
@@ -88,6 +89,7 @@ func send_key(session:@Terminal.Session, event:Input.KeyEvent) {
 func create_terminal(window:@Resources.Window, world:&Resources.World, demo:&Demo) {
     window.start_text_input()
     var drawing = Terminal.drawing(demo.session.screen(), view())
+    demo.revision = demo.session.screen().revision()
     demo.display = world.spawn(ECS.EntityRecipe()
         ..with(Components.Transform2D())
         ..with(Components.Canvas(drawing, Layout.width, Layout.height)
@@ -110,11 +112,15 @@ func update_terminal(input:@Resources.InputState, world:&Resources.World, demo:&
             success(status) => { if status != null { demo.exited = true } }
         }
     }
-    if let display = demo.display {
+    let revision = demo.session.screen().revision()
+    if revision != demo.revision {
         var drawing = Terminal.drawing(demo.session.screen(), view())
-        world.update<Components.Canvas>(display, func(canvas:&Components.Canvas) {
-            canvas.replace(drawing)
-        })
+        if let display = demo.display {
+            world.update<Components.Canvas>(display, func(canvas:&Components.Canvas) {
+                canvas.replace(drawing)
+            })
+        }
+        demo.revision = revision
     }
 }
 

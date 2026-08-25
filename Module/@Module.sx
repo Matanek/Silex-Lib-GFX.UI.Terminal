@@ -21,6 +21,7 @@ public struct Cell {
 func blank_cell() Cell { return Cell(text:" ", foreground:-1, background:-1, bold:false) }
 
 public class Screen {
+    private var current_revision:int
     private var column_count:int
     private var row_count:int
     private var cells:Cell[]
@@ -36,6 +37,7 @@ public class Screen {
     private var utf8:uint8[]
 
     init(size:Size = Size()) {
+        self.current_revision = 0
         self.column_count = size.columns
         self.row_count = size.rows
         self.cells = []
@@ -54,6 +56,7 @@ public class Screen {
 
     func columns() int { return self.column_count }
     func rows() int { return self.row_count }
+    func revision() int { return self.current_revision }
     func cursor_x() int { return self.cursor_column }
     func cursor_y() int { return self.cursor_row }
     func cell(column:int, row:int) Cell {
@@ -74,6 +77,7 @@ public class Screen {
         while index < self.column_count * self.row_count { self.cells.append(blank_cell()); index++ }
         self.cursor_column = 0
         self.cursor_row = 0
+        self.current_revision++
     }
 
     func resize(size:Size) {
@@ -99,18 +103,22 @@ public class Screen {
         self.cells = resized
         self.cursor_column = min_int(self.cursor_column, self.column_count - 1)
         self.cursor_row = min_int(self.cursor_row, self.row_count - 1)
+        self.current_revision++
     }
 
     func erase_previous() {
         if self.cursor_column <= 0 { return }
         self.cursor_column--
         self.cells[self.cursor_row * self.column_count + self.cursor_column] = blank_cell()
+        self.current_revision++
     }
 
     func feed(value:str) { self.feed(UTF8.bytes(value)) }
     func feed(value:uint8[]) {
+        if value.count() == 0 { return }
         for byte in value { self.consume(byte) }
         self.flush_utf8(false)
+        self.current_revision++
     }
 
     private func consume(byte:uint8) {

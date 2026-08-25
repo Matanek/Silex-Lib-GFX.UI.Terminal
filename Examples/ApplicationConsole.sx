@@ -20,6 +20,7 @@ static struct Layout {
 struct Demo {
     var console:Terminal.Console
     var display:ECS.Entity? = null
+    var revision:int = 0
 }
 
 func view() Terminal.ViewSettings {
@@ -33,6 +34,7 @@ func view() Terminal.ViewSettings {
 func create_console(window:@Resources.Window, world:&Resources.World, demo:&Demo) {
     window.start_text_input()
     var drawing = Terminal.drawing(demo.console.screen(), view())
+    demo.revision = demo.console.screen().revision()
     demo.display = world.spawn(ECS.EntityRecipe()
         ..with(Components.Transform2D())
         ..with(Components.Canvas(drawing, Layout.width, Layout.height)
@@ -72,11 +74,15 @@ func update_console(
             else => {}
         }
     }
-    if let display = demo.display {
+    let revision = demo.console.screen().revision()
+    if revision != demo.revision {
         var drawing = Terminal.drawing(demo.console.screen(), view())
-        world.update<Components.Canvas>(display, func(canvas:&Components.Canvas) {
-            canvas.replace(drawing)
-        })
+        if let display = demo.display {
+            world.update<Components.Canvas>(display, func(canvas:&Components.Canvas) {
+                canvas.replace(drawing)
+            })
+        }
+        demo.revision = revision
     }
 }
 

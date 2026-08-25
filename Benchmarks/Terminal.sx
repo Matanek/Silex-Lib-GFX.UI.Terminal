@@ -1,0 +1,57 @@
+use GFX.Terminal
+use STD.Time.Stopwatch
+
+func populated_screen() Terminal.Screen {
+    var screen = Terminal.Screen(Terminal.Size(columns:100, rows:30))
+    var row = 0
+    while row < 29 {
+        screen.feed("silex> compile project --release  completed in 42 ms  warning: none  status: ready")
+        if row < 28 { screen.feed("\n") }
+        row++
+    }
+    return screen
+}
+
+func render(screen:@Terminal.Screen) int {
+    var drawing = Terminal.drawing(screen)
+    var snapshot = drawing.snapshot(1024, 624)
+    let text = snapshot.text()
+    assert(text.width() > 0)
+    assert(text.height() > 0)
+    return drawing.command_count()
+}
+
+func main() {
+    var screen = populated_screen()
+    let command_count = render(screen)
+
+    var always = Stopwatch()
+    always.start()
+    var frame = 0
+    while frame < 10 { render(screen); frame++ }
+    always.stop()
+
+    var gated = Stopwatch()
+    gated.start()
+    var last_revision = -1
+    var redraws = 0
+    frame = 0
+    while frame < 10 {
+        let revision = screen.revision()
+        if revision != last_revision {
+            render(screen)
+            last_revision = revision
+            redraws++
+        }
+        frame++
+    }
+    gated.stop()
+
+    assert(redraws == 1)
+    print(
+        "always_10_frames_ms=", always.get_elapsed_milliseconds(),
+        " gated_10_frames_ms=", gated.get_elapsed_milliseconds(),
+        " redraws=", redraws,
+        " commands=", command_count
+    )
+}
