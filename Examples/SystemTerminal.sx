@@ -1,0 +1,146 @@
+use GFX.Application
+use GFX.Canvas
+use GFX.Color
+use GFX.Components
+use GFX.ECS
+use GFX.Input
+use GFX.Plugins
+use GFX.Resources
+use GFX.Terminal
+use STD.Error
+use STD.Math
+use STD.System
+
+static struct Layout {
+    let columns:int = 100
+    let rows:int = 30
+    let width:int = 1024
+    let height:int = 624
+}
+
+struct Demo {
+    var session:Terminal.Session
+    var display:ECS.Entity? = null
+    var exited:bool = false
+}
+
+func view() Terminal.ViewSettings {
+    return Terminal.ViewSettings(
+        cell_width:10.0,
+        cell_height:20.0,
+        padding:12.0
+    )
+}
+
+func shell_command() Terminal.Command {
+    let size = Terminal.Size(columns:Layout.columns, rows:Layout.rows)
+    return match System.platform() {
+        macos => Terminal.Command(
+            executable:"/bin/zsh",
+            arguments:["-l"],
+            current_directory:null,
+            inherit_environment:true,
+            environment:[Terminal.EnvironmentChange.set("TERM", "xterm-256color")],
+            size:size
+        )
+        linux => Terminal.Command(
+            executable:"/bin/sh",
+            arguments:["-l"],
+            current_directory:null,
+            inherit_environment:true,
+            environment:[Terminal.EnvironmentChange.set("TERM", "xterm-256color")],
+            size:size
+        )
+        windows => Terminal.Command(
+            executable:"cmd.exe",
+            arguments:[],
+            current_directory:null,
+            inherit_environment:true,
+            environment:[],
+            size:size
+        )
+    }
+}
+
+func send(session:@Terminal.Session, value:str) {
+    match session.write(value) {
+        failure(error) => { panic(error.operation + ": " + error.detail) }
+        success => {}
+    }
+}
+
+func send_key(session:@Terminal.Session, event:Input.KeyEvent) {
+    if event.modifiers.control {
+        if event.key == Input.Key.c { send(session, "\u{3}") }
+        elif event.key == Input.Key.d { send(session, "\u{4}") }
+        return
+    }
+    if event.key == Input.Key.enter { send(session, "\r") }
+    elif event.key == Input.Key.backspace { send(session, "\u{7f}") }
+    elif event.key == Input.Key.tab { send(session, "\t") }
+    elif event.key == Input.Key.escape { send(session, "\u{1b}") }
+    elif event.key == Input.Key.up { send(session, "\u{1b}[A") }
+    elif event.key == Input.Key.down { send(session, "\u{1b}[B") }
+    elif event.key == Input.Key.right { send(session, "\u{1b}[C") }
+    elif event.key == Input.Key.left { send(session, "\u{1b}[D") }
+}
+
+func create_terminal(window:@Resources.Window, world:&Resources.World, demo:&Demo) {
+    window.start_text_input()
+    var drawing = Terminal.drawing(demo.session.screen(), view())
+    demo.display = world.spawn(ECS.EntityRecipe()
+        ..with(Components.Transform2D())
+        ..with(Components.Canvas(drawing, Layout.width, Layout.height)
+            ..anchor = Math.Vec2(0.5)
+            ..pivot = Math.Vec2(0.5)
+            ..space = Components.CanvasSpace.viewport
+        )
+    )
+}
+
+func update_terminal(input:@Resources.InputState, world:&Resources.World, demo:&Demo) {
+    if !demo.exited {
+        let text = input.text_input()
+        if text != "" { send(demo.session, text) }
+        for event in input.events() {
+            match event { key_pressed(key) => { send_key(demo.session, key) }; else => {} }
+        }
+        match demo.session.update() {
+            failure(error) => { panic(error.operation + ": " + error.detail) }
+            success(status) => { if status != null { demo.exited = true } }
+        }
+    }
+    if let display = demo.display {
+        var drawing = Terminal.drawing(demo.session.screen(), view())
+        world.update<Components.Canvas>(display, func(canvas:&Components.Canvas) {
+            canvas.replace(drawing)
+        })
+    }
+}
+
+func run_terminal() Result<void, Error> {
+    var session = try Terminal.spawn(shell_command())
+    Application()
+        ..add_resource(Demo(session:session))
+        ..add_plugin(Plugins.Window(Plugins.Window.Settings()
+            ..title = "GFX.Terminal — System terminal"
+            ..width = Layout.width
+            ..height = Layout.height
+            ..resizable = false
+        ))
+        ..add_plugin(Plugins.Rendering(Plugins.Rendering.Settings()
+            ..clear = Color.slate_950()
+        ))
+        ..add_plugin(Plugins.Scene2D())
+        ..add_system(Application.Schedule.startup, create_terminal)
+        ..add_system(Application.Schedule.update, update_terminal)
+        ..run()
+    return Result<void, Error>.success()
+}
+
+func main() {
+    match run_terminal() {
+        failure(error) => { panic(error.operation + ": " + error.detail) }
+        success => {}
+    }
+}

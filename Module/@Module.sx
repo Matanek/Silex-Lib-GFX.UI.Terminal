@@ -359,9 +359,10 @@ public class Console {
     func submit() str {
         let command = self.current_input
         self.current_input = ""
-        self.console_screen.feed("\n" + self.prompt_text)
+        self.console_screen.feed("\n")
         return command
     }
+    func respond(value:str) { self.console_screen.feed(value + "\n" + self.prompt_text) }
     func clear() { self.console_screen.clear(); self.console_screen.feed(self.prompt_text + self.current_input) }
     func resize(size:Size) { self.console_screen.resize(size) }
 }

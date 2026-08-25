@@ -7,8 +7,9 @@ emulator grid and PTY/ConPTY dimensions.
 
 `Terminal.Console` is the complementary application-console mode. It owns no
 process and grants no shell access: the host writes messages, accepts edited
-input with `type`/`backspace`, and interprets the string returned by `submit`.
-Both modes expose the same `Screen`, so themes and view code stay shared.
+input with `type`/`backspace`, interprets the string returned by `submit`, then
+publishes a response and the next prompt with `respond`. Both modes expose the
+same `Screen`, so themes and view code stay shared.
 
 The first release recognizes printable UTF-8, carriage return, line feed,
 backspace, tab, CSI cursor movement/positioning, erase-in-display,
@@ -21,3 +22,7 @@ width are explicit future extensions.
 IDE may place it in a `GFX.Scene2D.Canvas`, refresh it after `Session.update`,
 and route `GFX.Input` text/key events to `Session.write`. `Theme`, font, cell
 dimensions, padding and cursor visibility remain application-controlled.
+
+The [application console](../Examples/ApplicationConsole.sx) and
+[system terminal](../Examples/SystemTerminal.sx) examples show the complete
+window, input, Scene2D Canvas and redraw integration.

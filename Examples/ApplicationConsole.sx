@@ -1,0 +1,102 @@
+use GFX.Application
+use GFX.Application.Controller
+use GFX.Canvas
+use GFX.Color
+use GFX.Components
+use GFX.ECS
+use GFX.Input
+use GFX.Plugins
+use GFX.Resources
+use GFX.Terminal
+use STD.Math
+
+static struct Layout {
+    let columns:int = 80
+    let rows:int = 24
+    let width:int = 824
+    let height:int = 504
+}
+
+struct Demo {
+    var console:Terminal.Console
+    var display:ECS.Entity? = null
+}
+
+func view() Terminal.ViewSettings {
+    return Terminal.ViewSettings(
+        cell_width:10.0,
+        cell_height:20.0,
+        padding:12.0
+    )
+}
+
+func create_console(window:@Resources.Window, world:&Resources.World, demo:&Demo) {
+    window.start_text_input()
+    var drawing = Terminal.drawing(demo.console.screen(), view())
+    demo.display = world.spawn(ECS.EntityRecipe()
+        ..with(Components.Transform2D())
+        ..with(Components.Canvas(drawing, Layout.width, Layout.height)
+            ..anchor = Math.Vec2(0.5)
+            ..pivot = Math.Vec2(0.5)
+            ..space = Components.CanvasSpace.viewport
+        )
+    )
+}
+
+func execute(command:str, console:&Terminal.Console, controller:&Controller) {
+    if command == "help" { console.respond("commands: help, status, clear, quit") }
+    elif command == "status" { console.respond("application is running") }
+    elif command == "clear" { console.clear() }
+    elif command == "quit" { controller.stop() }
+    elif command == "" { console.respond("") }
+    else { console.respond("unknown command: " + command) }
+}
+
+func update_console(
+    input:@Resources.InputState,
+    world:&Resources.World,
+    demo:&Demo,
+    controller:&Controller
+) {
+    let text = input.text_input()
+    if text != "" { demo.console.type(text) }
+    for event in input.events() {
+        match event {
+            key_pressed(key) => {
+                if key.key == Input.Key.backspace { demo.console.backspace() }
+                elif key.key == Input.Key.enter {
+                    let command = demo.console.submit()
+                    execute(command, demo.console, controller)
+                }
+            }
+            else => {}
+        }
+    }
+    if let display = demo.display {
+        var drawing = Terminal.drawing(demo.console.screen(), view())
+        world.update<Components.Canvas>(display, func(canvas:&Components.Canvas) {
+            canvas.replace(drawing)
+        })
+    }
+}
+
+func main() {
+    Application()
+        ..add_resource(Demo(console:Terminal.Console(
+            Terminal.Size(columns:Layout.columns, rows:Layout.rows),
+            prompt:"silex> "
+        )))
+        ..add_plugin(Plugins.Window(Plugins.Window.Settings()
+            ..title = "GFX.Terminal — Application console"
+            ..width = Layout.width
+            ..height = Layout.height
+            ..resizable = false
+        ))
+        ..add_plugin(Plugins.Rendering(Plugins.Rendering.Settings()
+            ..clear = Color.slate_950()
+        ))
+        ..add_plugin(Plugins.Scene2D())
+        ..add_system(Application.Schedule.startup, create_console)
+        ..add_system(Application.Schedule.update, update_console)
+        ..run()
+}

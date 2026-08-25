@@ -25,5 +25,12 @@ var session = try Terminal.spawn(command)
 var drawing = Terminal.drawing(session.screen())
 ```
 
+Runnable examples:
+
+- [ApplicationConsole.sx](Examples/ApplicationConsole.sx) opens an
+  application-owned command console.
+- [SystemTerminal.sx](Examples/SystemTerminal.sx) opens the platform shell in
+  a live GFX window and routes text, control keys, arrows and terminal output.
+
 See [Docs/README.md](Docs/README.md) for the supported VT subset and the
 integration boundary.

@@ -39,8 +39,9 @@ test "application console returns host commands without spawning a shell" {
     console.type("d")
     assert(console.input() == "reload")
     assert(console.submit() == "reload")
-    console.write_line("application ready")
+    console.respond("application ready")
     assert(Text.contains(console.screen().line(1), "application ready"))
+    assert(Text.starts_with(console.screen().line(2), "silex> "))
 }
 
 test "system session feeds the shared terminal screen" {
