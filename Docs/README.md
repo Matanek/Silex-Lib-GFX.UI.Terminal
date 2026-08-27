@@ -99,8 +99,10 @@ control sequences are ignored without becoming visible text. Alternate
 screen, scroll regions, OSC links, selection, clipboard, mouse protocols and
 grapheme width remain future extensions.
 
-The [quick start](../Examples/QuickStart.sx) opens a minimal interactive
-terminal window. The [application console](../Examples/ApplicationConsole.sx) and
-[system terminal](../Examples/SystemTerminal.sx) examples contain complete
-`UI.Session` values presented by `GFX.Viewer`; neither creates, receives or stores
-terminal state in an ECS world.
+The centralized [dedicated system terminal](https://github.com/Matanek/Silex-Examples/blob/main/Sources/DedicatedSystemTerminal.sx)
+opens the minimal interactive terminal window. The centralized
+[application command console](https://github.com/Matanek/Silex-Examples/blob/main/Sources/ApplicationCommandConsole.sx)
+and [composed system terminal](https://github.com/Matanek/Silex-Examples/blob/main/Sources/ComposedSystemTerminal.sx)
+provide the complete `UI.Session` applications. Package checks live under
+`Tests/`; none of these paths creates, receives or stores terminal state in an
+ECS world.

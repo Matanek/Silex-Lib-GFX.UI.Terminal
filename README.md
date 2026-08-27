@@ -81,14 +81,11 @@ runs. A typical row therefore uses one text texture and one Scene2D draw while
 preserving exact terminal cell positions; ANSI style changes split only the
 affected row into additional runs.
 
-Runnable examples:
-
-- [QuickStart.sx](Examples/QuickStart.sx) opens the minimal interactive
-  terminal window.
-- [ApplicationConsole.sx](Examples/ApplicationConsole.sx) hosts an
-  application-owned command console.
-- [SystemTerminal.sx](Examples/SystemTerminal.sx) hosts the platform shell and
-  composes it with additional UI.
+Runnable applications live in `Silex-Examples`: the
+[dedicated system terminal](https://github.com/Matanek/Silex-Examples/blob/main/Sources/DedicatedSystemTerminal.sx),
+[application command console](https://github.com/Matanek/Silex-Examples/blob/main/Sources/ApplicationCommandConsole.sx),
+and [composed system terminal](https://github.com/Matanek/Silex-Examples/blob/main/Sources/ComposedSystemTerminal.sx).
+Their package-level rendering and public-boundary checks live under `Tests/`.
 
 See [Docs/README.md](Docs/README.md) for the supported VT subset and detailed
 integration contract.
