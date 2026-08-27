@@ -85,7 +85,9 @@ Runnable applications live in `Silex-Examples`: the
 [dedicated system terminal](https://github.com/Matanek/Silex-Examples/blob/main/Sources/DedicatedSystemTerminal.sx),
 [application command console](https://github.com/Matanek/Silex-Examples/blob/main/Sources/ApplicationCommandConsole.sx),
 and [composed system terminal](https://github.com/Matanek/Silex-Examples/blob/main/Sources/ComposedSystemTerminal.sx).
-Their package-level rendering and public-boundary checks live under `Tests/`.
+The public [TerminalScreenRendering](https://github.com/Matanek/Silex-Benchmarks/blob/main/Sources/TerminalScreenRendering.sx)
+benchmark lives in `Silex-Benchmarks`; package-level rendering and
+public-boundary checks live under `Tests/`.
 
 See [Docs/README.md](Docs/README.md) for the supported VT subset and detailed
 integration contract.
