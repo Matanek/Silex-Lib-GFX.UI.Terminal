@@ -5,6 +5,7 @@ use GFX.UI
 use STD.Error
 use STD.Math
 use STD.Subprocess
+use STD.System
 use STD.Text
 use STD.Text.UTF8
 
@@ -358,6 +359,39 @@ public class Session {
 public func spawn(command:Command) Result<Session, Error> {
     let size = command.size
     return Result<Session, Error>.success(Session(try Subprocess.spawn_terminal(command), size))
+}
+
+// Starts the conventional interactive shell for the active platform. Use
+// spawn(Command) when the executable, arguments or environment are deliberate
+// application choices.
+public func spawn_shell(size:Size = Size()) Result<Session, Error> {
+    let command = match System.platform() {
+        macos => Command(
+            executable:"/bin/zsh",
+            arguments:["-l"],
+            current_directory:null,
+            inherit_environment:true,
+            environment:[EnvironmentChange.set("TERM", "xterm-256color")],
+            size:size
+        )
+        linux => Command(
+            executable:"/bin/sh",
+            arguments:["-l"],
+            current_directory:null,
+            inherit_environment:true,
+            environment:[EnvironmentChange.set("TERM", "xterm-256color")],
+            size:size
+        )
+        windows => Command(
+            executable:"cmd.exe",
+            arguments:[],
+            current_directory:null,
+            inherit_environment:true,
+            environment:[],
+            size:size
+        )
+    }
+    return spawn(command)
 }
 
 public class Console {

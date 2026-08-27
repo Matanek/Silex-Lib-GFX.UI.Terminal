@@ -1,10 +1,27 @@
 use GFX.Input.Keyboard
 use GFX.UI
 use GFX.UI.Terminal
+use STD.Error
 use STD.Math
 
 func submit(command:str, console:&Terminal.Console) {
     console.respond("accepted: " + command)
+}
+
+test "consumer starts the platform shell through the intent API" {
+    func run() Result<void, Error> {
+        var session = try Terminal.spawn_shell(Terminal.Size(
+            columns:20,
+            rows:4
+        ))
+        assert(session.is_running())
+        try session.terminate()
+        return Result<void, Error>.success()
+    }
+    match run() {
+        failure(error) => { panic(error.operation + ": " + error.detail) }
+        success => {}
+    }
 }
 
 test "consumer can build a themed terminal drawing" {

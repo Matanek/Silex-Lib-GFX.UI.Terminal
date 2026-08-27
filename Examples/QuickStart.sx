@@ -1,0 +1,16 @@
+use GFX.UI
+use GFX.UI.Terminal
+
+func main() Result<void,str> {
+    var session = try Terminal.spawn_shell()
+        else error "could not start the system shell"
+    var terminal = Terminal.View(session)
+    var runtime = UI.Runtime(terminal)
+    var drawing = runtime.drawing(824, 504)
+    assert(drawing.command_count() > 0)
+
+    try session.terminate()
+        else error "could not stop the system shell"
+    print("GFX.UI.Terminal quick start rendered")
+    return Result<void,str>.success()
+}

@@ -28,7 +28,11 @@ var runtime = UI.Runtime(view)
 
 ## System terminal
 
-`Terminal.spawn` starts a terminal child through
+`Terminal.spawn_shell()` starts the conventional interactive shell for the
+active platform. It is the intent-first entry point for an ordinary system
+terminal. `Terminal.spawn(Command(...))` is the advanced path for choosing a
+specific executable, arguments, working directory or environment. Both start
+a terminal child through
 `STD.Subprocess.spawn_terminal`. `Session.update` drains output into an
 inspectable `Screen`; `write` sends UTF-8 input and `resize` updates both the
 emulator grid and PTY/ConPTY dimensions.
@@ -67,7 +71,8 @@ control sequences are ignored without becoming visible text. Alternate
 screen, scroll regions, OSC links, selection, clipboard, mouse protocols and
 grapheme width remain future extensions.
 
-The [application console](../Examples/ApplicationConsole.sx) and
+The [quick start](../Examples/QuickStart.sx) isolates the minimal construction
+path. The [application console](../Examples/ApplicationConsole.sx) and
 [system terminal](../Examples/SystemTerminal.sx) examples contain complete
 `UI.Runtime` hosts built on `GFX.Viewer`; neither creates, receives or stores
 terminal state in an ECS world.

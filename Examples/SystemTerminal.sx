@@ -7,7 +7,6 @@ use GFX.UI.Terminal
 use GFX.Viewer
 use STD.Error
 use STD.Process
-use STD.System
 
 static struct Layout {
     let columns:int = 100
@@ -26,36 +25,6 @@ func check_only() bool {
         }
     }
     return false
-}
-
-func shell_command() Terminal.Command {
-    let size = Terminal.Size(columns:Layout.columns, rows:Layout.rows)
-    return match System.platform() {
-        macos => Terminal.Command(
-            executable:"/bin/zsh",
-            arguments:["-l"],
-            current_directory:null,
-            inherit_environment:true,
-            environment:[Terminal.EnvironmentChange.set("TERM", "xterm-256color")],
-            size:size
-        )
-        linux => Terminal.Command(
-            executable:"/bin/sh",
-            arguments:["-l"],
-            current_directory:null,
-            inherit_environment:true,
-            environment:[Terminal.EnvironmentChange.set("TERM", "xterm-256color")],
-            size:size
-        )
-        windows => Terminal.Command(
-            executable:"cmd.exe",
-            arguments:[],
-            current_directory:null,
-            inherit_environment:true,
-            environment:[],
-            size:size
-        )
-    }
 }
 
 func interface(session:Terminal.Session) UI.Column {
@@ -117,7 +86,10 @@ class SystemSession:Viewer.CanvasSession {
 }
 
 func run_terminal() Result<void, Error> {
-    var terminal = try Terminal.spawn(shell_command())
+    var terminal = try Terminal.spawn_shell(Terminal.Size(
+        columns:Layout.columns,
+        rows:Layout.rows
+    ))
     var root = interface(terminal)
     var session = SystemSession(terminal, root)
     Viewer.show(session, Viewer.CanvasSettings(

@@ -9,6 +9,16 @@ composition, constraints, focus, keyboard/text routing and runtime
 invalidation without placing terminal or UI state in an ECS `World`. The
 package has no dependency on `GFX.ECS`, `GFX.Scene2D` or `GFX.Rendering`.
 
+The shortest path to a system terminal is deliberately small:
+
+```sx
+var session = try Terminal.spawn_shell()
+var terminal = Terminal.View(session)
+```
+
+`Terminal.spawn(Command(...))` remains available when choosing the executable,
+arguments or environment is part of the application intent.
+
 ```sx
 use GFX.UI
 use GFX.UI.Terminal
@@ -32,10 +42,11 @@ tree and avoids introducing an application-world dependency.
 
 Runnable examples:
 
+- [QuickStart.sx](Examples/QuickStart.sx) shows the minimal shell-to-UI path.
 - [ApplicationConsole.sx](Examples/ApplicationConsole.sx) hosts an
   application-owned command console.
 - [SystemTerminal.sx](Examples/SystemTerminal.sx) hosts the platform shell and
-  shows the explicit session/UI update boundary.
+  shows the complete Viewer and explicit session/UI update boundary.
 
 See [Docs/README.md](Docs/README.md) for the supported VT subset and detailed
 integration contract.
