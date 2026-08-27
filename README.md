@@ -42,7 +42,8 @@ tree and avoids introducing an application-world dependency.
 
 Runnable examples:
 
-- [QuickStart.sx](Examples/QuickStart.sx) shows the minimal shell-to-UI path.
+- [QuickStart.sx](Examples/QuickStart.sx) opens the minimal interactive
+  terminal window.
 - [ApplicationConsole.sx](Examples/ApplicationConsole.sx) hosts an
   application-owned command console.
 - [SystemTerminal.sx](Examples/SystemTerminal.sx) hosts the platform shell and

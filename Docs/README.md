@@ -71,8 +71,8 @@ control sequences are ignored without becoming visible text. Alternate
 screen, scroll regions, OSC links, selection, clipboard, mouse protocols and
 grapheme width remain future extensions.
 
-The [quick start](../Examples/QuickStart.sx) isolates the minimal construction
-path. The [application console](../Examples/ApplicationConsole.sx) and
+The [quick start](../Examples/QuickStart.sx) opens a minimal interactive
+terminal window. The [application console](../Examples/ApplicationConsole.sx) and
 [system terminal](../Examples/SystemTerminal.sx) examples contain complete
 `UI.Runtime` hosts built on `GFX.Viewer`; neither creates, receives or stores
 terminal state in an ECS world.

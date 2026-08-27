@@ -1,16 +1,74 @@
+use GFX.Canvas
+use GFX.Input
 use GFX.UI
+use GFX.UI.Input as UIInput
 use GFX.UI.Terminal
+use GFX.Viewer
 
 func main() Result<void,str> {
-    var session = try Terminal.spawn_shell()
+    var shell = try Terminal.spawn_shell()
         else error "could not start the system shell"
-    var terminal = Terminal.View(session)
-    var runtime = UI.Runtime(terminal)
-    var drawing = runtime.drawing(824, 504)
-    assert(drawing.command_count() > 0)
+    var terminal = Terminal.View(shell)
+    var window = TerminalWindow(shell, UI.Runtime(terminal))
 
-    try session.terminate()
+    Viewer.show(window, Viewer.CanvasSettings(
+        width:824,
+        height:504,
+        title:"GFX.UI.Terminal"
+    ))
+
+    try shell.terminate()
         else error "could not stop the system shell"
-    print("GFX.UI.Terminal quick start rendered")
     return Result<void,str>.success()
+}
+
+// Viewer is only the development host for this standalone example. The
+// terminal package itself remains independent from Application and ECS.
+class TerminalWindow:Viewer.CanvasSession {
+    private var shell:Terminal.Session? = null
+    private var runtime:UI.Runtime? = null
+    private var exited:bool = false
+
+    init(shell:Terminal.Session, runtime:UI.Runtime) {
+        self.shell = shell
+        self.runtime = runtime
+    }
+
+    func drawing(width:int, height:int) Canvas.Canvas {
+        if var runtime = self.runtime {
+            return runtime.drawing(width, height)
+        }
+        panic("GFX.UI.Terminal quick start has no UI runtime")
+    }
+
+    func handle(event:@Input.Event) bool {
+        if var runtime = self.runtime {
+            return UIInput.handle(runtime, event)
+        }
+        return false
+    }
+
+    func update(delta:float) bool {
+        if !self.exited {
+            if var shell = self.shell {
+                match shell.update() {
+                    failure(error) => {
+                        panic(error.operation + ": " + error.detail)
+                    }
+                    success(status) => {
+                        if status != null { self.exited = true }
+                    }
+                }
+            }
+        }
+        if var runtime = self.runtime { return runtime.update(delta) }
+        return false
+    }
+
+    func accepts_text_input() bool {
+        if var runtime = self.runtime {
+            return runtime.accepts_text_input()
+        }
+        return false
+    }
 }
