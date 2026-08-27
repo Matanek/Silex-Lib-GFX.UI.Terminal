@@ -880,19 +880,94 @@ func paint_row(
         if cell.background >= 0 {
             painter.fill(Canvas.Rect(position, Math.Vec2(settings.cell_width, settings.cell_height)), Canvas.Fill.solid(with_opacity(settings.theme.color(cell.background, settings.theme.background), opacity)))
         }
-        if cell.text != " " {
-            var weight = Canvas.TextWeight.regular
-            if cell.bold { weight = Canvas.TextWeight.bold }
-            painter.text(cell.text, position, Canvas.TextStyle(size:settings.font_size, color:with_opacity(settings.theme.color(cell.foreground, settings.theme.foreground), opacity), weight:weight, font:settings.font))
-        }
         column++
     }
+    paint_text_runs(painter, screen, row, columns, settings, origin, opacity)
     if settings.cursor_visible && focused && screen.cursor_y() == row &&
         screen.cursor_x() < columns
     {
         let cursor = Math.Vec2(origin.x + screen.cursor_x() as float * settings.cell_width, origin.y + settings.cell_height - 2.0)
         painter.fill(Canvas.Rect(cursor, Math.Vec2(settings.cell_width, 2.0)), Canvas.Fill.solid(with_opacity(settings.theme.cursor, opacity)))
     }
+}
+
+func paint_text_runs(
+    painter:&Canvas.Painter,
+    screen:@Screen,
+    row:int,
+    columns:int,
+    settings:ViewSettings,
+    origin:Math.Vec2,
+    opacity:float
+) {
+    var start = 0
+    var foreground = -1
+    var bold = false
+    var value:str[] = []
+    var visible = false
+    var column = 0
+    while column <= columns {
+        var same_style = false
+        if column < columns {
+            let cell = screen.cell(column, row)
+            same_style = column == start ||
+                (cell.foreground == foreground && cell.bold == bold)
+            if same_style {
+                if column == start {
+                    foreground = cell.foreground
+                    bold = cell.bold
+                }
+                value.append(cell.text)
+                visible = cell.text != " " || visible
+            }
+        }
+        if !same_style {
+            if visible {
+                paint_text_run(
+                    painter,
+                    Text.join(value, ""),
+                    start,
+                    foreground,
+                    bold,
+                    settings,
+                    origin,
+                    opacity
+                )
+            }
+            if column >= columns { return }
+            start = column
+            value = []
+            visible = false
+        } else { column++ }
+    }
+}
+
+func paint_text_run(
+    painter:&Canvas.Painter,
+    value:str,
+    start:int,
+    foreground:int,
+    bold:bool,
+    settings:ViewSettings,
+    origin:Math.Vec2,
+    opacity:float
+) {
+    var weight = Canvas.TextWeight.regular
+    if bold { weight = Canvas.TextWeight.bold }
+    painter.text(
+        value,
+        Math.Vec2(origin.x + start as float * settings.cell_width, origin.y),
+        Canvas.TextStyle(
+            size:settings.font_size,
+            color:with_opacity(
+                settings.theme.color(foreground, settings.theme.foreground),
+                opacity
+            ),
+            weight:weight,
+            font:settings.font,
+            fixed_advance:settings.cell_width
+        )
+    )
 }
 
 func with_opacity(color:Color, opacity:float) Color {

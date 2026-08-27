@@ -1,3 +1,4 @@
+use GFX.Canvas
 use GFX.UI
 use GFX.UI.Terminal
 use STD.Math
@@ -26,13 +27,35 @@ func render_full(screen:@Terminal.Screen) int {
 func main() {
     var full_screen = populated_screen()
     let command_count = render_full(full_screen)
+    assert(command_count < 100)
+    var settings = Terminal.ViewSettings()
+    if let font = settings.font {
+        var measuring = Canvas()
+        var style = Canvas.TextStyle(size:settings.font_size, font:font)
+        print(
+            "single_cell_width=",
+            measuring.measure_text("x", style).width,
+            " hundred_cell_width=",
+            measuring.measure_text(
+                "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
+                "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                style
+            ).width
+        )
+    }
 
+    var full_drawing = Terminal.drawing(full_screen)
+    var retained = full_drawing.snapshot(1024, 624)
+    for layer in retained.text_layers() { let warm = layer.text_layer(2.0) }
     var full = Stopwatch()
     full.start()
     var frame = 0
     while frame < 10 {
         full_screen.feed("x")
-        render_full(full_screen)
+        full_drawing = Terminal.drawing(full_screen)
+        var next = full_drawing.snapshot(1024, 624, reuse:retained)
+        for layer in next.text_layers() { let text = layer.text_layer(2.0) }
+        retained = next
         frame++
     }
     full.stop()
@@ -45,6 +68,8 @@ func main() {
     var initial = runtime.drawing(1024, 624)
     assert(initial.command_count() > 0)
     assert(runtime.pointer_pressed(Math.Vec2(10.0, 10.0)))
+    var retained_ui = initial.snapshot(1024, 624)
+    for layer in retained_ui.text_layers() { let warm = layer.text_layer(2.0) }
 
     var composed = Stopwatch()
     composed.start()
@@ -54,8 +79,9 @@ func main() {
         runtime.insert_text("x")
         if runtime.update(0.0) {
             var drawing = runtime.drawing(1024, 624)
-            var snapshot = drawing.snapshot(1024, 624)
-            let text = snapshot.text()
+            var snapshot = drawing.snapshot(1024, 624, reuse:retained_ui)
+            for layer in snapshot.text_layers() { let text = layer.text_layer(2.0) }
+            retained_ui = snapshot
             invalidations++
         }
         frame++

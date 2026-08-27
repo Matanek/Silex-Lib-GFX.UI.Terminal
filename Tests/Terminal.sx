@@ -31,6 +31,9 @@ test "screen interprets cursor movement colors and UTF-8" {
     assert(screen.revision() > initial_revision)
     var drawing = Terminal.drawing(screen)
     assert(drawing.command_count() > 2)
+    var snapshot = drawing.snapshot(144, 84)
+    var layers = snapshot.text_layers()
+    assert(layers.count() <= screen.rows())
 }
 
 test "terminal views use a monospace font by default" {

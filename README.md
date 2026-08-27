@@ -44,6 +44,11 @@ polling and cleanup. Both modes invalidate through their surrounding
 `UI.Runtime`; `UI.Session` supplies that behavior to any `Canvas.Session`
 presenter. None of these layers introduces an application-world dependency.
 
+Visible cells with the same text style are retained as fixed-advance Canvas
+runs. A typical row therefore uses one text texture and one Scene2D draw while
+preserving exact terminal cell positions; ANSI style changes split only the
+affected row into additional runs.
+
 Runnable examples:
 
 - [QuickStart.sx](Examples/QuickStart.sx) opens the minimal interactive

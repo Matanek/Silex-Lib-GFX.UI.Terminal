@@ -65,6 +65,11 @@ control measures itself from terminal rows, columns, cell dimensions and
 padding; parent UI constraints determine the allocated frame. Painting is
 limited to the rows and columns visible in that frame.
 
+Adjacent cells with the same foreground and weight are coalesced into
+fixed-advance Canvas runs. This preserves custom cell dimensions and exact
+column positions while bounding retained text textures and Scene2D draws by
+visible style runs rather than visible characters.
+
 `drawing(screen, settings)` remains available for static snapshots outside a
 UI tree. Interactive applications should use `Terminal.Shell` or
 `Terminal.Console`, whose content revision invalidates `UI.Runtime`.
