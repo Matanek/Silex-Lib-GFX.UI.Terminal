@@ -36,6 +36,23 @@ test "screen interprets cursor movement colors and UTF-8" {
     assert(layers.count() <= screen.rows())
 }
 
+test "terminal text runs keep their full width at Retina scale" {
+    var screen = Terminal.Screen(Terminal.Size(columns:9, rows:1))
+    screen.feed("\u{1b}[36mExa\u{1b}[34mgit\u{1b}[31mma\u{1b}[0m")
+    var drawing = Terminal.drawing(screen)
+    var layers = drawing.snapshot(120, 40).text_layers()
+    assert(layers.count() == 3)
+    let first = layers[0].text_layer(2.0)
+    let second = layers[1].text_layer(2.0)
+    let third = layers[2].text_layer(2.0)
+    assert(first.size.x == 30.0)
+    assert(first.image.width() == 60)
+    assert(second.size.x == 30.0)
+    assert(second.image.width() == 60)
+    assert(third.size.x == 20.0)
+    assert(third.image.width() == 40)
+}
+
 test "terminal views use a monospace font by default" {
     var drawing = Canvas.Canvas()
     var settings = Terminal.ViewSettings()
