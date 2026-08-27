@@ -49,7 +49,7 @@ path therefore contains no process loop of its own:
 
 ```sx
 var terminal = Terminal.Shell()
-Viewer.show(UI.Session(terminal))
+Viewer.show(UI.Session(terminal, autofocus:true))
 ```
 
 The PTY/ConPTY transport, writes, resize synchronization and polling are
@@ -66,6 +66,14 @@ should also close its window. Terminal never makes that window-level decision.
 After an exit is observed, the view no longer accepts input and discards late
 key events without treating the expected closed input stream as a runtime
 error.
+
+Initial keyboard focus is opt-in through
+`UI.Session(terminal, autofocus:true)`. `Terminal.Shell` forwards `Ctrl+C` to
+the child shell by default, which is the expected behavior for full terminal
+and multi-tab applications. A single-session window may instead use
+`close_on_interrupt:true`; that terminates only its `ShellSession`. The
+application remains responsible for removing the tab or closing the window,
+typically from `on_exit` and an application/viewer close predicate.
 
 ## Rendering and emulation
 

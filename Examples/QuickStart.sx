@@ -3,10 +3,20 @@ use GFX.UI.Terminal
 use GFX.Viewer
 
 func main() {
-    var terminal = Terminal.Shell()
-    Viewer.show(UI.Session(terminal), Viewer.CanvasSettings(
-        width:824,
-        height:504,
-        title:"GFX.UI.Terminal"
-    ))
+    var closed = false
+    var process = Terminal.ShellSession()
+    var terminal = Terminal.Shell(
+        session:process,
+        close_on_interrupt:true,
+        on_exit:func() { closed = true }
+    )
+    Viewer.show_until(
+        UI.Session(terminal, autofocus:true),
+        func() bool { return closed },
+        Viewer.CanvasSettings(
+            width:824,
+            height:504,
+            title:"GFX.UI.Terminal"
+        )
+    )
 }

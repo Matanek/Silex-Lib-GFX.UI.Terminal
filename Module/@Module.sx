@@ -510,6 +510,7 @@ class SessionContent:UI.Content {
     private var settings:ViewSettings
     private var on_error:func(@Error)
     private var on_exit:func()
+    private let close_on_interrupt:bool
     private var current_revision:int
     private var focused:bool = false
     private var polling:bool = true
@@ -518,12 +519,14 @@ class SessionContent:UI.Content {
         session:Session,
         settings:ViewSettings,
         on_error:func(@Error),
-        on_exit:func()
+        on_exit:func(),
+        close_on_interrupt:bool
     ) {
         self.current_session = session
         self.settings = settings
         self.on_error = on_error
         self.on_exit = on_exit
+        self.close_on_interrupt = close_on_interrupt
         self.current_revision = session.screen().revision()
     }
 
@@ -587,7 +590,10 @@ class SessionContent:UI.Content {
     ) bool {
         if !self.polling { return false }
         if modifiers.control {
-            if key == Keyboard.Key.c { return self.send_key("\u{3}") }
+            if key == Keyboard.Key.c {
+                if self.close_on_interrupt { return self.close_session() }
+                return self.send_key("\u{3}")
+            }
             if key == Keyboard.Key.d { return self.send_key("\u{4}") }
             return false
         }
@@ -610,6 +616,17 @@ class SessionContent:UI.Content {
     private func send_key(value:str) bool {
         var session = self.session()
         return send(session, value, self.on_error)
+    }
+
+    private func close_session() bool {
+        var session = self.session()
+        match session.terminate() {
+            failure(error) => {
+                self.on_error(error)
+                return false
+            }
+            success => { return true }
+        }
     }
 }
 
@@ -725,7 +742,7 @@ package class View:UI.CustomView {
         on_error:func(@Error) = panic_on_session_error,
         on_exit:func() = ignore_exit,
         style:UI.Style = UI.Style()
-    ):super(SessionContent(session, settings, on_error, on_exit), style) {}
+    ):super(SessionContent(session, settings, on_error, on_exit, false), style) {}
 }
 
 // A system terminal view. It owns the platform shell, process polling and
@@ -737,13 +754,15 @@ public class Shell:UI.CustomView {
         on_error:func(@Error) = panic_on_session_error,
         on_exit:func() = ignore_exit,
         style:UI.Style = UI.Style(),
-        session:ShellSession? = null
+        session:ShellSession? = null,
+        close_on_interrupt:bool = false
     ):super(
         SessionContent(
             resolved_shell_session(size, session),
             settings,
             on_error,
-            on_exit
+            on_exit,
+            close_on_interrupt
         ),
         style
     ) {}

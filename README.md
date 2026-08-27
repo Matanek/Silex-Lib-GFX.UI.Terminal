@@ -17,7 +17,7 @@ use GFX.UI.Terminal
 use GFX.Viewer
 
 var terminal = Terminal.Shell()
-Viewer.show(UI.Session(terminal))
+Viewer.show(UI.Session(terminal, autofocus:true))
 ```
 
 The application console declares its commands directly. `help` and `clear` are
@@ -68,6 +68,13 @@ application window. `on_exit` runs once after the terminal observes the child
 exit, whether it was requested through `close()` or initiated by the shell.
 Once exited, the view stops accepting input; late key or text events are
 ignored instead of being reported as broken-pipe runtime errors.
+
+`UI.Session(terminal, autofocus:true)` optionally focuses the first text-input
+control immediately, so its caret is visible without a click. By default,
+`Ctrl+C` is forwarded to the shell. A single-terminal application can set
+`Terminal.Shell(close_on_interrupt:true)` to make it close that shell session
+instead; `on_exit` or a `Viewer.show_until` predicate can then decide whether
+the surrounding tab or window should close.
 
 Visible cells with the same text style are retained as fixed-advance Canvas
 runs. A typical row therefore uses one text texture and one Scene2D draw while

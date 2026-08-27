@@ -5,6 +5,17 @@ use STD.Math
 
 func status(arguments:str) str { return "accepted: " + arguments }
 
+func control_modifiers() Keyboard.Modifiers {
+    return Keyboard.Modifiers(
+        shift:false, control:true, alt:false, system:false,
+        left_shift:false, right_shift:false, level5:false,
+        left_control:true, right_control:false,
+        left_alt:false, right_alt:false,
+        left_system:false, right_system:false, mode:false,
+        caps_lock:false, num_lock:false, scroll_lock:false
+    )
+}
+
 test "consumer creates a system shell as a UI view" {
     var process = Terminal.ShellSession(size:Terminal.Size(columns:20, rows:4))
     var shell = Terminal.Shell(session:process)
@@ -24,6 +35,7 @@ test "consumer controls shell sessions independently" {
     var second_exits = 0
     var first_view = Terminal.Shell(
         session:first,
+        close_on_interrupt:true,
         on_exit:func() { first_exits++ }
     )
     var second_view = Terminal.Shell(
@@ -34,14 +46,12 @@ test "consumer controls shell sessions independently" {
         first_view,
         second_view
     ]
-    var runtime = UI.Runtime(UI.Column(tabs))
+    var runtime = UI.Runtime(UI.Column(tabs), autofocus:true)
     var drawing = runtime.drawing(240, 280)
     assert(drawing.command_count() > 0)
+    assert(runtime.accepts_text_input())
 
-    match first.close() {
-        failure(error) => { panic(error.operation + ": " + error.detail) }
-        success => {}
-    }
+    assert(runtime.key_pressed(Keyboard.Key.c, control_modifiers()))
     var attempts = 0
     while first.is_running() && attempts < 100000 {
         runtime.update(0.001)
