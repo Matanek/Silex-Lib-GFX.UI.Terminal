@@ -1,121 +1,103 @@
-use GFX.Application
-use GFX.Application.Controller
 use GFX.Canvas
 use GFX.Color
-use GFX.Components
-use GFX.ECS
 use GFX.Input
-use GFX.Plugins
-use GFX.Resources
-use GFX.Terminal
-use STD.Math
+use GFX.UI
+use GFX.UI.Input as UIInput
+use GFX.UI.Terminal
+use GFX.Viewer
+use STD.Process
 
 static struct Layout {
     let columns:int = 80
     let rows:int = 24
-    let width:int = 824
-    let height:int = 504
+    let width:int = 900
+    let height:int = 580
 }
 
-struct Demo {
-    var console:Terminal.Console
-    var view:Terminal.View
-    var displays:ECS.Entity[]
-}
-
-func view_settings() Terminal.ViewSettings {
-    return Terminal.ViewSettings(
-        cell_width:10.0,
-        cell_height:20.0,
-        padding:12.0
-    )
-}
-
-func create_console(window:@Resources.Window, world:&Resources.World, demo:&Demo) {
-    window.start_text_input()
-    var background = demo.view.background_drawing(demo.console.screen())
-    world.spawn(ECS.EntityRecipe()
-        ..with(Components.Transform2D())
-        ..with(Components.Canvas(background, demo.view.width(demo.console.screen()), demo.view.height(demo.console.screen()))
-            ..anchor = Math.Vec2(0.5)
-            ..pivot = Math.Vec2(0.5)
-            ..space = Components.CanvasSpace.viewport
-        )
-    )
-    let changed = demo.view.changed_rows(demo.console.screen())
-    for row in changed {
-        var drawing = demo.view.line_drawing(demo.console.screen(), row)
-        let display = world.spawn(ECS.EntityRecipe()
-            ..with(Components.Transform2D(position:Math.Vec2(0.0, demo.view.row_y(row))))
-            ..with(Components.Canvas(drawing, demo.view.width(demo.console.screen()), demo.view.row_height())
-                ..anchor = Math.Vec2()
-                ..pivot = Math.Vec2()
-                ..space = Components.CanvasSpace.viewport
-            )
-        )
-        demo.displays.append(display)
+func check_only() bool {
+    match Process.arguments() {
+        failure(error) => { return false }
+        success(arguments) => {
+            for argument in arguments {
+                if argument == "--check" { return true }
+            }
+        }
     }
+    return false
 }
 
-func execute(command:str, console:&Terminal.Console, controller:&Controller) {
-    if command == "help" { console.respond("commands: help, status, clear, quit") }
+func execute(command:str, console:&Terminal.Console) {
+    if command == "help" { console.respond("commands: help, status, clear") }
     elif command == "status" { console.respond("application is running") }
     elif command == "clear" { console.clear() }
-    elif command == "quit" { controller.stop() }
     elif command == "" { console.respond("") }
     else { console.respond("unknown command: " + command) }
 }
 
-func update_console(
-    input:@Resources.InputState,
-    world:&Resources.World,
-    demo:&Demo,
-    controller:&Controller
-) {
-    let text = input.text_input()
-    if text != "" { demo.console.type(text) }
-    for event in input.events() {
-        match event {
-            key_pressed(key) => {
-                if key.key == Input.Key.backspace { demo.console.backspace() }
-                elif key.key == Input.Key.enter {
-                    let command = demo.console.submit()
-                    execute(command, demo.console, controller)
-                }
-            }
-            else => {}
-        }
+func interface(console:Terminal.Console) UI.Column {
+    var heading = UI.Text("Application console")
+    heading.style.font_size = 22.0
+    heading.style.font_weight = UI.FontWeight.bold
+
+    var terminal = Terminal.ConsoleView(console, on_submit:execute)
+    terminal.style.grow = 1.0
+
+    let children:UI.View[] = [heading, terminal]
+    var root = UI.Column(children)
+    root.style.padding = UI.Insets(18.0)
+    root.style.gap = 12.0
+    root.style.background = Color.slate_900()
+    root.style.foreground = Color.slate_100()
+    return root
+}
+
+class ConsoleSession:Viewer.CanvasSession {
+    private var runtime:UI.Runtime? = null
+
+    init(root:UI.View) { self.runtime = UI.Runtime(root) }
+
+    func drawing(width:int, height:int) Canvas.Canvas {
+        if var runtime = self.runtime { return runtime.drawing(width, height) }
+        panic("GFX.UI.Terminal console has no UI runtime")
     }
-    let changed = demo.view.changed_rows(demo.console.screen())
-    for row in changed {
-        var drawing = demo.view.line_drawing(demo.console.screen(), row)
-        world.update<Components.Canvas>(demo.displays[row], func(canvas:&Components.Canvas) {
-            canvas.replace(drawing)
-        })
+
+    func handle(event:@Input.Event) bool {
+        if var runtime = self.runtime { return UIInput.handle(runtime, event) }
+        return false
+    }
+
+    func update(delta:float) bool {
+        if var runtime = self.runtime { return runtime.update(delta) }
+        return false
+    }
+
+    func accepts_text_input() bool {
+        if var runtime = self.runtime { return runtime.accepts_text_input() }
+        return false
     }
 }
 
 func main() {
-    Application()
-        ..add_resource(Demo(
-            console:Terminal.Console(
-                Terminal.Size(columns:Layout.columns, rows:Layout.rows),
-                prompt:"silex> "
-            ),
-            view:Terminal.View(view_settings()),
-            displays:[]
-        ))
-        ..add_plugin(Plugins.Window(Plugins.Window.Settings()
-            ..title = "GFX.Terminal — Application console"
-            ..width = Layout.width
-            ..height = Layout.height
-            ..resizable = false
-        ))
-        ..add_plugin(Plugins.Rendering(Plugins.Rendering.Settings()
-            ..clear = Color.slate_950()
-        ))
-        ..add_plugin(Plugins.Scene2D())
-        ..add_system(Application.Schedule.startup, create_console)
-        ..add_system(Application.Schedule.update, update_console)
-        ..run()
+    var console = Terminal.Console(
+        Terminal.Size(columns:Layout.columns, rows:Layout.rows),
+        prompt:"silex> "
+    )
+    console.write_line("GFX.UI.Terminal application console")
+    console.write_line("type 'help' to list commands")
+
+    var root = interface(console)
+    var session = ConsoleSession(root)
+    if check_only() {
+        var drawing = session.drawing(Layout.width, Layout.height)
+        assert(drawing.command_count() > 4)
+        print("GFX.UI.Terminal application console rendered")
+        return
+    }
+
+    Viewer.show(session, Viewer.CanvasSettings(
+        width:Layout.width,
+        height:Layout.height,
+        title:"GFX.UI.Terminal — Application console",
+        background:Color.slate_950()
+    ))
 }

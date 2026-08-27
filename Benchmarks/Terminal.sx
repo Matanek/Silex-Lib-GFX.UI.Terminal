@@ -1,4 +1,5 @@
-use GFX.Terminal
+use GFX.UI
+use GFX.UI.Terminal
 use STD.Time.Stopwatch
 
 func populated_screen() Terminal.Screen {
@@ -35,35 +36,34 @@ func main() {
     }
     full.stop()
 
-    var incremental_screen = populated_screen()
-    var view = Terminal.View()
-    for row in view.changed_rows(incremental_screen) {
-        var initial = view.line_drawing(incremental_screen, row)
-        var snapshot = initial.snapshot(view.width(incremental_screen), view.row_height())
-        let text = snapshot.text()
-    }
+    var console = Terminal.Console(Terminal.Size(columns:100, rows:30))
+    console.write(full_screen.line(0))
+    var view = Terminal.ConsoleView(console)
+    var runtime = UI.Runtime(view)
+    var initial = runtime.drawing(1024, 624)
+    assert(initial.command_count() > 0)
 
-    var incremental = Stopwatch()
-    incremental.start()
-    var rendered_rows = 0
+    var composed = Stopwatch()
+    composed.start()
+    var invalidations = 0
     frame = 0
     while frame < 10 {
-        incremental_screen.feed("x")
-        for row in view.changed_rows(incremental_screen) {
-            var drawing = view.line_drawing(incremental_screen, row)
-            var snapshot = drawing.snapshot(view.width(incremental_screen), view.row_height())
+        console.write("x")
+        if runtime.update(0.0) {
+            var drawing = runtime.drawing(1024, 624)
+            var snapshot = drawing.snapshot(1024, 624)
             let text = snapshot.text()
-            rendered_rows++
+            invalidations++
         }
         frame++
     }
-    incremental.stop()
+    composed.stop()
 
-    assert(rendered_rows == 10)
+    assert(invalidations == 10)
     print(
         "full_10_keys_ms=", full.get_elapsed_milliseconds(),
-        " incremental_10_keys_ms=", incremental.get_elapsed_milliseconds(),
-        " rendered_rows=", rendered_rows,
+        " ui_10_keys_ms=", composed.get_elapsed_milliseconds(),
+        " invalidations=", invalidations,
         " commands=", command_count
     )
 }

@@ -1,57 +1,73 @@
-# Terminal sessions and views
+# Terminal controls
 
-`Terminal.spawn` starts a real terminal child through
-`STD.Subprocess.spawn_terminal`. `Session.update` drains terminal output into
-an inspectable `Screen`; `write` sends UTF-8 input and `resize` updates both the
-emulator grid and PTY/ConPTY dimensions.
+`GFX.UI.Terminal` is an extension of `GFX.UI`, not a rendering-world plugin.
+Its `Terminal.View` and `Terminal.ConsoleView` subclasses of `UI.CustomView`
+compose anywhere a `UI.View` is accepted. `UI.Runtime` owns their retained
+identity, layout, focus, text/key routing, paint dispatch and invalidation.
+No terminal state is inserted into an ECS `World`.
 
-`Terminal.Console` is the complementary application-console mode. It owns no
-process and grants no shell access: the host writes messages, accepts edited
-input with `type`/`backspace`, interprets the string returned by `submit`, then
-publishes a response and the next prompt with `respond`. Both modes expose the
-same `Screen`, so themes and view code stay shared.
+## Application console
 
-The first release recognizes printable UTF-8, carriage return, line feed,
-backspace, tab, CSI cursor movement/positioning, erase-in-display,
-erase-in-line and the standard 16 ANSI foreground/background colors. Unknown
-control sequences are ignored without becoming visible text. Alternate screen,
-scroll regions, OSC links, selection, clipboard, mouse protocols and grapheme
-width are explicit future extensions.
-
-`drawing(screen, settings)` returns one ordinary `GFX.Canvas.Canvas` and stays
-useful for snapshots or small, infrequently updated consoles. An interactive
-terminal should instead retain a `Terminal.View`. Its first `changed_rows`
-call returns every row; later calls return only rows whose cells or cursor
-changed. The application keeps one `GFX.Scene2D.Canvas` per row and replaces
-those returned by `changed_rows` with `line_drawing`. A separate
-`background_drawing` supplies the terminal backdrop.
+`Terminal.Console` owns no process and grants no shell access. The host writes
+messages, receives edited input through `ConsoleView`, handles the submitted
+command and publishes a response:
 
 ```sx
-var view = Terminal.View(Terminal.ViewSettings())
+use GFX.UI
+use GFX.UI.Terminal
 
-// Create the background and one Scene2D Canvas per initial row.
-var background = view.background_drawing(screen)
-for row in view.changed_rows(screen) {
-    var line = view.line_drawing(screen, row)
+func execute(command:str, console:&Terminal.Console) {
+    if command == "clear" { console.clear() }
+    else { console.respond("unknown command: " + command) }
 }
 
-// After Session.update(), replace only these row canvases.
-for row in view.changed_rows(screen) {
-    var line = view.line_drawing(screen, row)
-}
+var console = Terminal.Console(prompt:"silex> ")
+var view = Terminal.ConsoleView(console, on_submit:execute)
+var runtime = UI.Runtime(view)
 ```
 
-This keeps typing cost proportional to the changed line rather than to all
-visible text. Scrolling still invalidates every row because the entire visible
-grid genuinely changes. `width`, `height`, `row_height` and `row_y` provide the
-layout values needed to place the retained Canvas entities. The view uses
-`Canvas.Font.monospace()` by default; `Theme`, a custom font, cell dimensions,
-padding and cursor visibility remain application-controlled.
+## System terminal
 
-`Screen.revision()` remains available for integrations that retain a single
-drawing. `Terminal.View` consumes finer internal row revisions and is the
-recommended path for latency-sensitive consoles and terminals.
+`Terminal.spawn` starts a terminal child through
+`STD.Subprocess.spawn_terminal`. `Session.update` drains output into an
+inspectable `Screen`; `write` sends UTF-8 input and `resize` updates both the
+emulator grid and PTY/ConPTY dimensions.
+
+Process polling stays explicit. A host normally performs these two operations
+in order:
+
+```sx
+match session.update() {
+    failure(error) => { panic(error.detail) }
+    success(status) => {}
+}
+let redraw = runtime.update(delta)
+```
+
+`Terminal.View` never calls `Session.update()` itself. This separation lets a
+game, editor or event-driven tool choose its own process scheduling without
+coupling `GFX.UI` to `Application`, ECS or a game world.
+
+## Rendering and emulation
+
+Both controls share `Screen`, `Theme`, `ViewSettings` and the Canvas renderer.
+They use `Canvas.Font.monospace()` by default and accept a custom font. The
+control measures itself from terminal rows, columns, cell dimensions and
+padding; parent UI constraints determine the allocated frame. Painting is
+limited to the rows and columns visible in that frame.
+
+`drawing(screen, settings)` remains available for static snapshots outside a
+UI tree. Interactive applications should use `Terminal.View` or
+`Terminal.ConsoleView`, whose content revision invalidates `UI.Runtime`.
+
+The current emulator recognizes printable UTF-8, carriage return, line feed,
+backspace, tab, CSI cursor movement/positioning, erase-in-display,
+erase-in-line and the standard 16 ANSI foreground/background colors. Unknown
+control sequences are ignored without becoming visible text. Alternate
+screen, scroll regions, OSC links, selection, clipboard, mouse protocols and
+grapheme width remain future extensions.
 
 The [application console](../Examples/ApplicationConsole.sx) and
-[system terminal](../Examples/SystemTerminal.sx) examples show the complete
-window, input, Scene2D Canvas and incremental redraw integration.
+[system terminal](../Examples/SystemTerminal.sx) examples contain complete
+`UI.Runtime` hosts built on `GFX.Viewer`; neither creates, receives or stores
+terminal state in an ECS world.

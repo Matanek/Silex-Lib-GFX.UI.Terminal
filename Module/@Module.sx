@@ -1,5 +1,7 @@
 use GFX.Canvas
 use GFX.Color
+use GFX.Input.Keyboard
+use GFX.UI
 use STD.Error
 use STD.Math
 use STD.Subprocess
@@ -22,7 +24,6 @@ func blank_cell() Cell { return Cell(text:" ", foreground:-1, background:-1, bol
 
 public class Screen {
     private var current_revision:int
-    private var row_revisions:int[]
     private var column_count:int
     private var row_count:int
     private var cells:Cell[]
@@ -39,7 +40,6 @@ public class Screen {
 
     init(size:Size = Size()) {
         self.current_revision = 0
-        self.row_revisions = []
         self.column_count = size.columns
         self.row_count = size.rows
         self.cells = []
@@ -266,25 +266,13 @@ public class Screen {
         }
     }
 
-    module func row_revision(row:int) int {
-        if row < 0 || row >= self.row_count { panic("terminal row revision is outside the screen") }
-        return self.row_revisions[row]
-    }
-
     private func touch_row(row:int) {
         if row < 0 || row >= self.row_count { return }
         self.current_revision++
-        self.row_revisions[row] = self.current_revision
     }
 
     private func touch_all_rows() {
         self.current_revision++
-        self.row_revisions = []
-        var row = 0
-        while row < self.row_count {
-            self.row_revisions.append(self.current_revision)
-            row++
-        }
     }
 }
 
@@ -444,120 +432,303 @@ public struct ViewSettings {
     }
 }
 
-// Retains the per-row revisions consumed by a terminal presentation. A caller
-// can keep one Canvas entity per returned row so a key echo only rerasterizes
-// the line that actually changed.
-public class View {
-    private var view_settings:ViewSettings
-    private var column_count:int
-    private var row_count:int
-    private var retained_revisions:int[]
+func panic_on_session_error(error:@Error) {
+    panic(error.operation + ": " + error.detail)
+}
 
-    init(settings:ViewSettings = ViewSettings()) {
-        self.view_settings = settings
-        self.column_count = -1
-        self.row_count = -1
-        self.retained_revisions = []
+func ignore_submission(command:str, console:&Console) {}
+
+class SessionContent:UI.Content {
+    private var current_session:Session? = null
+    private var settings:ViewSettings
+    private var on_error:func(@Error)
+    private var current_revision:int
+    private var focused:bool = false
+
+    init(
+        session:Session,
+        settings:ViewSettings,
+        on_error:func(@Error)
+    ) {
+        self.current_session = session
+        self.settings = settings
+        self.on_error = on_error
+        self.current_revision = session.screen().revision()
     }
 
-    func settings() ViewSettings { return self.view_settings }
-
-    func width(screen:@Screen) int {
-        return Math.ceil(self.view_settings.padding * 2.0 + screen.columns() as float * self.view_settings.cell_width) as int
+    func measure(maximum:Math.Vec2) Math.Vec2 {
+        var session = self.session()
+        return intrinsic_size(session.screen(), self.settings)
     }
 
-    func height(screen:@Screen) int {
-        return Math.ceil(self.view_settings.padding * 2.0 + screen.rows() as float * self.view_settings.cell_height) as int
+    func paint(
+        painter:&Canvas.Painter,
+        frame:Canvas.Rect,
+        opacity:float
+    ) {
+        var session = self.session()
+        paint_terminal(
+            painter,
+            session.screen(),
+            self.settings,
+            frame,
+            opacity,
+            self.focused
+        )
     }
 
-    func row_height() int { return Math.ceil(self.view_settings.cell_height) as int }
-
-    func row_y(row:int) float {
-        if row < 0 { panic("terminal view row cannot be negative") }
-        return self.view_settings.padding + row as float * self.view_settings.cell_height
+    func focusable() bool { return true }
+    func accepts_text_input() bool { return true }
+    func focus_changed(focused:bool) bool {
+        if self.focused == focused { return false }
+        self.focused = focused
+        return self.settings.cursor_visible
     }
-
-    func background_drawing(screen:@Screen) Canvas.Canvas {
-        let width = self.width(screen) as float
-        let height = self.height(screen) as float
-        let color = self.view_settings.theme.background
-        var result = Canvas.Canvas()
-        result.paint(func(painter:&Canvas.Painter) {
-            painter.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(width, height)), Canvas.Fill.solid(color))
-        })
-        return result
+    func update(delta:float) bool {
+        var session = self.session()
+        let revision = session.screen().revision()
+        if revision == self.current_revision { return false }
+        self.current_revision = revision
+        return true
     }
-
-    func changed_rows(screen:@Screen) int[] {
-        if self.column_count != screen.columns() || self.row_count != screen.rows() {
-            self.column_count = screen.columns()
-            self.row_count = screen.rows()
-            self.retained_revisions = []
-            var row = 0
-            while row < self.row_count { self.retained_revisions.append(-1); row++ }
+    func insert_text(value:str) bool {
+        var session = self.session()
+        return send(session, value, self.on_error)
+    }
+    func key_pressed(
+        key:Keyboard.Key,
+        modifiers:Keyboard.Modifiers
+    ) bool {
+        if modifiers.control {
+            if key == Keyboard.Key.c { return self.send_key("\u{3}") }
+            if key == Keyboard.Key.d { return self.send_key("\u{4}") }
+            return false
         }
-        var changed:int[] = []
-        var row = 0
-        while row < self.row_count {
-            let revision = screen.row_revision(row)
-            if revision != self.retained_revisions[row] {
-                changed.append(row)
-                self.retained_revisions[row] = revision
-            }
-            row++
-        }
-        return changed
+        if key == Keyboard.Key.enter { return self.send_key("\r") }
+        if key == Keyboard.Key.backspace { return self.send_key("\u{7f}") }
+        if key == Keyboard.Key.tab { return self.send_key("\t") }
+        if key == Keyboard.Key.escape { return self.send_key("\u{1b}") }
+        if key == Keyboard.Key.up { return self.send_key("\u{1b}[A") }
+        if key == Keyboard.Key.down { return self.send_key("\u{1b}[B") }
+        if key == Keyboard.Key.right { return self.send_key("\u{1b}[C") }
+        if key == Keyboard.Key.left { return self.send_key("\u{1b}[D") }
+        return false
     }
 
-    func line_drawing(screen:@Screen, row:int) Canvas.Canvas {
-        if row < 0 || row >= screen.rows() { panic("terminal view line is outside the screen") }
-        var settings = self.view_settings
-        var result = Canvas.Canvas()
-        result.paint(func(painter:&Canvas.Painter) {
-            paint_row(painter, screen, row, settings, Math.Vec2(settings.padding, 0.0))
-        })
-        return result
+    private func session() Session {
+        if var session = self.current_session { return session }
+        panic("GFX.UI.Terminal view has no session")
+    }
+
+    private func send_key(value:str) bool {
+        var session = self.session()
+        return send(session, value, self.on_error)
     }
 }
 
+class ConsoleContent:UI.Content {
+    private var current_console:Console? = null
+    private var settings:ViewSettings
+    private var on_submit:func(str, &Console)
+    private var current_revision:int
+    private var focused:bool = false
+
+    init(
+        console:Console,
+        settings:ViewSettings,
+        on_submit:func(str, &Console)
+    ) {
+        self.current_console = console
+        self.settings = settings
+        self.on_submit = on_submit
+        self.current_revision = console.screen().revision()
+    }
+
+    func measure(maximum:Math.Vec2) Math.Vec2 {
+        var console = self.console()
+        return intrinsic_size(console.screen(), self.settings)
+    }
+
+    func paint(
+        painter:&Canvas.Painter,
+        frame:Canvas.Rect,
+        opacity:float
+    ) {
+        var console = self.console()
+        paint_terminal(
+            painter,
+            console.screen(),
+            self.settings,
+            frame,
+            opacity,
+            self.focused
+        )
+    }
+
+    func focusable() bool { return true }
+    func accepts_text_input() bool { return true }
+    func focus_changed(focused:bool) bool {
+        if self.focused == focused { return false }
+        self.focused = focused
+        return self.settings.cursor_visible
+    }
+    func update(delta:float) bool {
+        var console = self.console()
+        let revision = console.screen().revision()
+        if revision == self.current_revision { return false }
+        self.current_revision = revision
+        return true
+    }
+    func insert_text(value:str) bool {
+        var console = self.console()
+        console.type(value)
+        return true
+    }
+    func key_pressed(
+        key:Keyboard.Key,
+        modifiers:Keyboard.Modifiers
+    ) bool {
+        var console = self.console()
+        if key == Keyboard.Key.backspace { console.backspace(); return true }
+        if key == Keyboard.Key.enter {
+            let command = console.submit()
+            self.on_submit(command, console)
+            return true
+        }
+        return false
+    }
+
+
+    private func console() Console {
+        if var console = self.current_console { return console }
+        panic("GFX.UI.Terminal console view has no console")
+    }
+}
+
+// A real PTY/ConPTY terminal leaf composable in any GFX.UI tree. Process
+// polling remains explicit through Session.update; UI.Runtime owns only view
+// invalidation, focus and input routing.
+public class View:UI.CustomView {
+    init(
+        session:Session,
+        settings:ViewSettings = ViewSettings(),
+        on_error:func(@Error) = panic_on_session_error,
+        style:UI.Style = UI.Style()
+    ):super(SessionContent(session, settings, on_error), style) {}
+}
+
+// An application-owned command console with the same UI composition and
+// rendering contract, but no process or shell access.
+public class ConsoleView:UI.CustomView {
+    init(
+        console:Console,
+        settings:ViewSettings = ViewSettings(),
+        on_submit:func(str, &Console) = ignore_submission,
+        style:UI.Style = UI.Style()
+    ):super(ConsoleContent(console, settings, on_submit), style) {}
+}
+
 public func drawing(screen:@Screen, settings:ViewSettings = ViewSettings()) Canvas.Canvas {
-    let width = settings.padding * 2.0 + screen.columns() as float * settings.cell_width
-    let height = settings.padding * 2.0 + screen.rows() as float * settings.cell_height
+    let size = intrinsic_size(screen, settings)
     var result = Canvas.Canvas()
     result.paint(func(painter:&Canvas.Painter) {
-        painter.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(width, height)), Canvas.Fill.solid(settings.theme.background))
-        var row = 0
-        while row < screen.rows() {
-            paint_row(painter, screen, row, settings, Math.Vec2(settings.padding, settings.padding + row as float * settings.cell_height))
-            row++
-        }
+        paint_terminal(
+            painter,
+            screen,
+            settings,
+            Canvas.Rect(Math.Vec2(), size),
+            1.0,
+            true
+        )
     })
     return result
+}
+
+func intrinsic_size(screen:@Screen, settings:ViewSettings) Math.Vec2 {
+    return Math.Vec2(
+        settings.padding * 2.0 + screen.columns() as float * settings.cell_width,
+        settings.padding * 2.0 + screen.rows() as float * settings.cell_height
+    )
+}
+
+func send(session:@Session, value:str, on_error:func(@Error)) bool {
+    match session.write(value) {
+        failure(error) => { on_error(error); return false }
+        success => { return true }
+    }
+}
+
+func paint_terminal(
+    painter:&Canvas.Painter,
+    screen:@Screen,
+    settings:ViewSettings,
+    frame:Canvas.Rect,
+    opacity:float,
+    focused:bool
+) {
+    if frame.size.x <= 0.0 || frame.size.y <= 0.0 { return }
+    painter.fill(frame, Canvas.Fill.solid(with_opacity(settings.theme.background, opacity)))
+    let content_width = Math.max(0.0, frame.size.x - settings.padding * 2.0)
+    let content_height = Math.max(0.0, frame.size.y - settings.padding * 2.0)
+    let columns = min_int(
+        screen.columns(),
+        Math.floor(content_width / settings.cell_width) as int
+    )
+    let rows = min_int(
+        screen.rows(),
+        Math.floor(content_height / settings.cell_height) as int
+    )
+    var row = 0
+    while row < rows {
+        paint_row(
+            painter,
+            screen,
+            row,
+            columns,
+            settings,
+            Math.Vec2(
+                frame.position.x + settings.padding,
+                frame.position.y + settings.padding + row as float * settings.cell_height
+            ),
+            opacity,
+            focused
+        )
+        row++
+    }
 }
 
 func paint_row(
     painter:&Canvas.Painter,
     screen:@Screen,
     row:int,
+    columns:int,
     settings:ViewSettings,
-    origin:Math.Vec2
+    origin:Math.Vec2,
+    opacity:float,
+    focused:bool
 ) {
     var column = 0
-    while column < screen.columns() {
+    while column < columns {
         let cell = screen.cell(column, row)
         let position = Math.Vec2(origin.x + column as float * settings.cell_width, origin.y)
         if cell.background >= 0 {
-            painter.fill(Canvas.Rect(position, Math.Vec2(settings.cell_width, settings.cell_height)), Canvas.Fill.solid(settings.theme.color(cell.background, settings.theme.background)))
+            painter.fill(Canvas.Rect(position, Math.Vec2(settings.cell_width, settings.cell_height)), Canvas.Fill.solid(with_opacity(settings.theme.color(cell.background, settings.theme.background), opacity)))
         }
         if cell.text != " " {
             var weight = Canvas.TextWeight.regular
             if cell.bold { weight = Canvas.TextWeight.bold }
-            painter.text(cell.text, position, Canvas.TextStyle(size:settings.font_size, color:settings.theme.color(cell.foreground, settings.theme.foreground), weight:weight, font:settings.font))
+            painter.text(cell.text, position, Canvas.TextStyle(size:settings.font_size, color:with_opacity(settings.theme.color(cell.foreground, settings.theme.foreground), opacity), weight:weight, font:settings.font))
         }
         column++
     }
-    if settings.cursor_visible && screen.cursor_y() == row {
+    if settings.cursor_visible && focused && screen.cursor_y() == row &&
+        screen.cursor_x() < columns
+    {
         let cursor = Math.Vec2(origin.x + screen.cursor_x() as float * settings.cell_width, origin.y + settings.cell_height - 2.0)
-        painter.fill(Canvas.Rect(cursor, Math.Vec2(settings.cell_width, 2.0)), Canvas.Fill.solid(settings.theme.cursor))
+        painter.fill(Canvas.Rect(cursor, Math.Vec2(settings.cell_width, 2.0)), Canvas.Fill.solid(with_opacity(settings.theme.cursor, opacity)))
     }
+}
+
+func with_opacity(color:Color, opacity:float) Color {
+    return color.with_alpha(color.a * opacity)
 }

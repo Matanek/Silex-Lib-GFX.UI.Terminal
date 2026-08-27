@@ -1,36 +1,31 @@
-use GFX.Application
 use GFX.Canvas
 use GFX.Color
-use GFX.Components
-use GFX.ECS
 use GFX.Input
-use GFX.Plugins
-use GFX.Resources
-use GFX.Terminal
+use GFX.UI
+use GFX.UI.Input as UIInput
+use GFX.UI.Terminal
+use GFX.Viewer
 use STD.Error
-use STD.Math
+use STD.Process
 use STD.System
 
 static struct Layout {
     let columns:int = 100
     let rows:int = 30
-    let width:int = 1024
-    let height:int = 624
+    let width:int = 1060
+    let height:int = 680
 }
 
-struct Demo {
-    var session:Terminal.Session
-    var view:Terminal.View
-    var displays:ECS.Entity[]
-    var exited:bool = false
-}
-
-func view_settings() Terminal.ViewSettings {
-    return Terminal.ViewSettings(
-        cell_width:10.0,
-        cell_height:20.0,
-        padding:12.0
-    )
+func check_only() bool {
+    match Process.arguments() {
+        failure(error) => { return false }
+        success(arguments) => {
+            for argument in arguments {
+                if argument == "--check" { return true }
+            }
+        }
+    }
+    return false
 }
 
 func shell_command() Terminal.Command {
@@ -63,101 +58,88 @@ func shell_command() Terminal.Command {
     }
 }
 
-func send(session:@Terminal.Session, value:str) {
-    match session.write(value) {
-        failure(error) => { panic(error.operation + ": " + error.detail) }
-        success => {}
-    }
+func interface(session:Terminal.Session) UI.Column {
+    var heading = UI.Text("System terminal")
+    heading.style.font_size = 22.0
+    heading.style.font_weight = UI.FontWeight.bold
+
+    var terminal = Terminal.View(session)
+    terminal.style.grow = 1.0
+
+    let children:UI.View[] = [heading, terminal]
+    var root = UI.Column(children)
+    root.style.padding = UI.Insets(18.0)
+    root.style.gap = 12.0
+    root.style.background = Color.slate_900()
+    root.style.foreground = Color.slate_100()
+    return root
 }
 
-func send_key(session:@Terminal.Session, event:Input.KeyEvent) {
-    if event.modifiers.control {
-        if event.key == Input.Key.c { send(session, "\u{3}") }
-        elif event.key == Input.Key.d { send(session, "\u{4}") }
-        return
-    }
-    if event.key == Input.Key.enter { send(session, "\r") }
-    elif event.key == Input.Key.backspace { send(session, "\u{7f}") }
-    elif event.key == Input.Key.tab { send(session, "\t") }
-    elif event.key == Input.Key.escape { send(session, "\u{1b}") }
-    elif event.key == Input.Key.up { send(session, "\u{1b}[A") }
-    elif event.key == Input.Key.down { send(session, "\u{1b}[B") }
-    elif event.key == Input.Key.right { send(session, "\u{1b}[C") }
-    elif event.key == Input.Key.left { send(session, "\u{1b}[D") }
-}
+class SystemSession:Viewer.CanvasSession {
+    private var terminal:Terminal.Session? = null
+    private var runtime:UI.Runtime? = null
+    private var exited:bool = false
 
-func create_terminal(window:@Resources.Window, world:&Resources.World, demo:&Demo) {
-    window.start_text_input()
-    var background = demo.view.background_drawing(demo.session.screen())
-    world.spawn(ECS.EntityRecipe()
-        ..with(Components.Transform2D())
-        ..with(Components.Canvas(background, demo.view.width(demo.session.screen()), demo.view.height(demo.session.screen()))
-            ..anchor = Math.Vec2(0.5)
-            ..pivot = Math.Vec2(0.5)
-            ..space = Components.CanvasSpace.viewport
-        )
-    )
-    let changed = demo.view.changed_rows(demo.session.screen())
-    for row in changed {
-        var drawing = demo.view.line_drawing(demo.session.screen(), row)
-        let display = world.spawn(ECS.EntityRecipe()
-            ..with(Components.Transform2D(position:Math.Vec2(0.0, demo.view.row_y(row))))
-            ..with(Components.Canvas(drawing, demo.view.width(demo.session.screen()), demo.view.row_height())
-                ..anchor = Math.Vec2()
-                ..pivot = Math.Vec2()
-                ..space = Components.CanvasSpace.viewport
-            )
-        )
-        demo.displays.append(display)
+    init(terminal:Terminal.Session, root:UI.View) {
+        self.terminal = terminal
+        self.runtime = UI.Runtime(root)
     }
-}
 
-func update_terminal(input:@Resources.InputState, world:&Resources.World, demo:&Demo) {
-    if !demo.exited {
-        let text = input.text_input()
-        if text != "" { send(demo.session, text) }
-        for event in input.events() {
-            match event { key_pressed(key) => { send_key(demo.session, key) }; else => {} }
+    func drawing(width:int, height:int) Canvas.Canvas {
+        if var runtime = self.runtime { return runtime.drawing(width, height) }
+        panic("GFX.UI.Terminal system terminal has no UI runtime")
+    }
+
+    func handle(event:@Input.Event) bool {
+        if var runtime = self.runtime { return UIInput.handle(runtime, event) }
+        return false
+    }
+
+    func update(delta:float) bool {
+        if !self.exited {
+            if var terminal = self.terminal {
+                match terminal.update() {
+                    failure(error) => { panic(error.operation + ": " + error.detail) }
+                    success(status) => {
+                        if status != null { self.exited = true }
+                    }
+                }
+            }
         }
-        match demo.session.update() {
-            failure(error) => { panic(error.operation + ": " + error.detail) }
-            success(status) => { if status != null { demo.exited = true } }
-        }
+        if var runtime = self.runtime { return runtime.update(delta) }
+        return false
     }
-    let changed = demo.view.changed_rows(demo.session.screen())
-    for row in changed {
-        var drawing = demo.view.line_drawing(demo.session.screen(), row)
-        world.update<Components.Canvas>(demo.displays[row], func(canvas:&Components.Canvas) {
-            canvas.replace(drawing)
-        })
+
+    func accepts_text_input() bool {
+        if var runtime = self.runtime { return runtime.accepts_text_input() }
+        return false
     }
 }
 
 func run_terminal() Result<void, Error> {
-    var session = try Terminal.spawn(shell_command())
-    Application()
-        ..add_resource(Demo(
-            session:session,
-            view:Terminal.View(view_settings()),
-            displays:[]
-        ))
-        ..add_plugin(Plugins.Window(Plugins.Window.Settings()
-            ..title = "GFX.Terminal — System terminal"
-            ..width = Layout.width
-            ..height = Layout.height
-            ..resizable = false
-        ))
-        ..add_plugin(Plugins.Rendering(Plugins.Rendering.Settings()
-            ..clear = Color.slate_950()
-        ))
-        ..add_plugin(Plugins.Scene2D())
-        ..add_system(Application.Schedule.startup, create_terminal)
-        ..add_system(Application.Schedule.update, update_terminal)
-        ..run()
+    var terminal = try Terminal.spawn(shell_command())
+    var root = interface(terminal)
+    var session = SystemSession(terminal, root)
+    Viewer.show(session, Viewer.CanvasSettings(
+        width:Layout.width,
+        height:Layout.height,
+        title:"GFX.UI.Terminal — System terminal",
+        background:Color.slate_950()
+    ))
     return Result<void, Error>.success()
 }
 
 func main() {
+    if check_only() {
+        var console = Terminal.Console(Terminal.Size(columns:40, rows:6))
+        console.write("GFX.UI.Terminal check")
+        var view = Terminal.ConsoleView(console)
+        var runtime = UI.Runtime(view)
+        var drawing = runtime.drawing(424, 144)
+        assert(drawing.command_count() > 2)
+        print("GFX.UI.Terminal system view rendered")
+        return
+    }
     match run_terminal() {
         failure(error) => { panic(error.operation + ": " + error.detail) }
         success => {}

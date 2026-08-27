@@ -1,17 +1,16 @@
 {
-  "name": "GFX.Terminal",
+  "name": "GFX.UI.Terminal",
   "version": "0.1.0",
-  "description": "Customizable ANSI/VT terminal sessions and Canvas rendering for GFX applications.",
+  "description": "Composable ANSI/VT terminal and application-console controls for GFX.UI.",
   "authors": ["Matanek"],
   "requires": { "silex": ">=0.39.0" },
   "dependencies": {
     "GFX": "^0.39.0",
     "GFX.Canvas": "^0.3.0",
+    "GFX.UI": "^0.1.0",
     "STD": "^0.20.0"
   },
   "devDependencies": {
-    "GFX.ECS": "^0.2.1",
-    "GFX.Rendering": "^0.3.0",
-    "GFX.Scene2D": "^0.2.1"
+    "GFX.Viewer": "^0.2.0"
   }
 }

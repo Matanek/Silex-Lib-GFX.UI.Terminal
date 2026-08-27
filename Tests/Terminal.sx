@@ -1,4 +1,5 @@
-use GFX.Terminal
+use GFX.UI
+use GFX.UI.Terminal
 use GFX.Canvas
 use STD.Text
 use STD.Console
@@ -32,26 +33,17 @@ test "terminal views use a monospace font by default" {
     } else { assert(false) }
 }
 
-test "retained terminal views invalidate only changed rows" {
-    var screen = Terminal.Screen(Terminal.Size(columns:12, rows:3))
-    var view = Terminal.View(Terminal.ViewSettings(cursor_visible:true))
-    let initial = view.changed_rows(screen)
-    assert(initial.count() == 3)
-    let unchanged = view.changed_rows(screen)
-    assert(unchanged.count() == 0)
-
-    screen.feed("a")
-    let typed = view.changed_rows(screen)
-    assert(typed.count() == 1)
-    assert(typed[0] == 0)
-    var line = view.line_drawing(screen, typed[0])
-    assert(line.command_count() > 0)
-
-    screen.feed("\n")
-    let moved = view.changed_rows(screen)
-    assert(moved.count() == 2)
-    assert(moved[0] == 0)
-    assert(moved[1] == 1)
+test "terminal console views invalidate their UI runtime on screen changes" {
+    var console = Terminal.Console(Terminal.Size(columns:12, rows:3))
+    var view = Terminal.ConsoleView(console)
+    var runtime = UI.Runtime(view)
+    var initial = runtime.drawing(144, 84)
+    assert(initial.command_count() > 1)
+    assert(!runtime.update(0.016))
+    console.write("changed")
+    assert(runtime.update(0.016))
+    var changed = runtime.drawing(144, 84)
+    assert(changed.command_count() > initial.command_count())
 }
 
 test "screen scrolls at its bottom edge" {

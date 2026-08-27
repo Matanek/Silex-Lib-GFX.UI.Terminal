@@ -1,4 +1,11 @@
-use GFX.Terminal
+use GFX.Input.Keyboard
+use GFX.UI
+use GFX.UI.Terminal
+use STD.Math
+
+func submit(command:str, console:&Terminal.Console) {
+    console.respond("accepted: " + command)
+}
 
 test "consumer can build a themed terminal drawing" {
     var screen = Terminal.Screen(Terminal.Size(columns:20, rows:4))
@@ -8,9 +15,28 @@ test "consumer can build a themed terminal drawing" {
     var view = Terminal.drawing(screen, Terminal.ViewSettings(cursor_visible:false))
     assert(view.command_count() > 1)
 
-    var retained = Terminal.View(Terminal.ViewSettings(cursor_visible:false))
-    let changed = retained.changed_rows(screen)
-    assert(changed.count() == screen.rows())
-    assert(retained.background_drawing(screen).command_count() == 1)
-    assert(retained.line_drawing(screen, 0).command_count() > 0)
+}
+
+test "consumer composes an interactive terminal console as a UI view" {
+    var console = Terminal.Console(
+        Terminal.Size(columns:20, rows:4),
+        prompt:"silex> "
+    )
+    var terminal = Terminal.ConsoleView(
+        console,
+        Terminal.ViewSettings(cursor_visible:true),
+        submit
+    )
+    let children:UI.View[] = [UI.Text("Console"), terminal]
+    var root = UI.Column(children)
+    var runtime = UI.Runtime(root)
+
+    var drawing = runtime.drawing(240, 140)
+    assert(drawing.command_count() > 2)
+    assert(runtime.pointer_pressed(Math.Vec2(20.0, 40.0)))
+    assert(runtime.accepts_text_input())
+    assert(runtime.insert_text("status"))
+    assert(runtime.key_pressed(Keyboard.Key.enter))
+    assert(console.input() == "")
+    assert(runtime.update(0.016))
 }
