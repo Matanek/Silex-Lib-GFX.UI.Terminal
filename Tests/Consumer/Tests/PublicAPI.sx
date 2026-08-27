@@ -1,27 +1,14 @@
 use GFX.Input.Keyboard
 use GFX.UI
 use GFX.UI.Terminal
-use STD.Error
 use STD.Math
 
-func submit(command:str, console:&Terminal.Console) {
-    console.respond("accepted: " + command)
-}
+func status(arguments:str) str { return "accepted: " + arguments }
 
-test "consumer starts the platform shell through the intent API" {
-    func run() Result<void, Error> {
-        var session = try Terminal.spawn_shell(Terminal.Size(
-            columns:20,
-            rows:4
-        ))
-        assert(session.is_running())
-        try session.terminate()
-        return Result<void, Error>.success()
-    }
-    match run() {
-        failure(error) => { panic(error.operation + ": " + error.detail) }
-        success => {}
-    }
+test "consumer creates a system shell as a UI view" {
+    var shell = Terminal.Shell(size:Terminal.Size(columns:20, rows:4))
+    var session = UI.Session(shell)
+    assert(session.drawing(240, 140).command_count() > 0)
 }
 
 test "consumer can build a themed terminal drawing" {
@@ -35,14 +22,16 @@ test "consumer can build a themed terminal drawing" {
 }
 
 test "consumer composes an interactive terminal console as a UI view" {
-    var console = Terminal.Console(
-        Terminal.Size(columns:20, rows:4),
-        prompt:"silex> "
-    )
-    var terminal = Terminal.ConsoleView(
-        console,
-        Terminal.ViewSettings(cursor_visible:true),
-        submit
+    var terminal = Terminal.Console(
+        commands:[Terminal.Command(
+            "status",
+            status,
+            description:"Show application status"
+        )],
+        size:Terminal.Size(columns:20, rows:4),
+        prompt:"silex> ",
+        welcome:["Application console"],
+        settings:Terminal.ViewSettings(cursor_visible:true)
     )
     let children:UI.View[] = [UI.Text("Console"), terminal]
     var root = UI.Column(children)
@@ -54,6 +43,5 @@ test "consumer composes an interactive terminal console as a UI view" {
     assert(runtime.accepts_text_input())
     assert(runtime.insert_text("status"))
     assert(runtime.key_pressed(Keyboard.Key.enter))
-    assert(console.input() == "")
     assert(runtime.update(0.016))
 }

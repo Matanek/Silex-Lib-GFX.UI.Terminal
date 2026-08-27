@@ -1,8 +1,8 @@
 # GFX.UI.Terminal
 
 `GFX.UI.Terminal` adds terminal controls to `GFX.UI`. It provides two modes:
-`Terminal.ConsoleView` for an application-owned command/log console and
-`Terminal.View` for a real shell or TUI connected through PTY/ConPTY.
+`Terminal.Shell()` communicates with the operating system, while
+`Terminal.Console()` exposes commands owned by the application.
 
 Both controls are ordinary `UI.CustomView` values. They participate in UI
 composition, constraints, focus, keyboard/text routing and runtime
@@ -12,33 +12,37 @@ package has no dependency on `GFX.ECS`, `GFX.Scene2D` or `GFX.Rendering`.
 The shortest path to a system terminal is deliberately small:
 
 ```sx
-var session = try Terminal.spawn_shell()
-var terminal = Terminal.View(session)
+use GFX.UI
+use GFX.UI.Terminal
+use GFX.Viewer
+
+var terminal = Terminal.Shell()
+Viewer.show(UI.Session(terminal))
 ```
 
-`Terminal.spawn(Command(...))` remains available when choosing the executable,
-arguments or environment is part of the application intent.
+The application console declares its commands directly. `help` and `clear` are
+built in; the remaining text is passed to the selected action:
 
 ```sx
 use GFX.UI
 use GFX.UI.Terminal
 
-func execute(command:str, console:&Terminal.Console) {
-    console.respond("received: " + command)
-}
+func status(arguments:str) str { return "application is running" }
+func echo(arguments:str) str { return arguments }
 
-func interface(console:Terminal.Console) UI.Column {
-    var terminal = Terminal.ConsoleView(console, on_submit:execute)
-    terminal.style.grow = 1.0
-    let children:UI.View[] = [UI.Text("Console"), terminal]
-    return UI.Column(children)
-}
+var terminal = Terminal.Console(
+    commands:[
+        Terminal.Command("status", status, description:"Show application status"),
+        Terminal.Command("echo", echo, description:"Print the provided text")
+    ],
+    welcome:["type 'help' to list commands"]
+)
 ```
 
-`Terminal.Session.update()` deliberately remains host-controlled: an
-application polls its process, then calls `UI.Runtime.update(delta)` to detect
-the changed screen revision. This keeps process scheduling outside the UI
-tree and avoids introducing an application-world dependency.
+`Terminal.Shell` owns the platform process, its PTY/ConPTY session, nonblocking
+polling and cleanup. Both modes invalidate through their surrounding
+`UI.Runtime`; `UI.Session` supplies that behavior to any `Canvas.Session`
+presenter. None of these layers introduces an application-world dependency.
 
 Runnable examples:
 
@@ -47,7 +51,7 @@ Runnable examples:
 - [ApplicationConsole.sx](Examples/ApplicationConsole.sx) hosts an
   application-owned command console.
 - [SystemTerminal.sx](Examples/SystemTerminal.sx) hosts the platform shell and
-  shows the complete Viewer and explicit session/UI update boundary.
+  composes it with additional UI.
 
 See [Docs/README.md](Docs/README.md) for the supported VT subset and detailed
 integration contract.

@@ -1,8 +1,5 @@
-use GFX.Canvas
 use GFX.Color
-use GFX.Input
 use GFX.UI
-use GFX.UI.Input as UIInput
 use GFX.UI.Terminal
 use GFX.Viewer
 use STD.Process
@@ -26,20 +23,34 @@ func check_only() bool {
     return false
 }
 
-func execute(command:str, console:&Terminal.Console) {
-    if command == "help" { console.respond("commands: help, status, clear") }
-    elif command == "status" { console.respond("application is running") }
-    elif command == "clear" { console.clear() }
-    elif command == "" { console.respond("") }
-    else { console.respond("unknown command: " + command) }
-}
+func status(arguments:str) str { return "application is running" }
+func echo(arguments:str) str { return arguments }
 
-func interface(console:Terminal.Console) UI.Column {
+func interface() UI.Column {
     var heading = UI.Text("Application console")
     heading.style.font_size = 22.0
     heading.style.font_weight = UI.FontWeight.bold
 
-    var terminal = Terminal.ConsoleView(console, on_submit:execute)
+    var terminal = Terminal.Console(
+        commands:[
+            Terminal.Command(
+                "status",
+                status,
+                description:"Show the application status"
+            ),
+            Terminal.Command(
+                "echo",
+                echo,
+                description:"Print the provided text"
+            )
+        ],
+        size:Terminal.Size(columns:Layout.columns, rows:Layout.rows),
+        prompt:"silex> ",
+        welcome:[
+            "GFX.UI.Terminal application console",
+            "type 'help' to list commands"
+        ]
+    )
     terminal.style.grow = 1.0
 
     let children:UI.View[] = [heading, terminal]
@@ -51,42 +62,9 @@ func interface(console:Terminal.Console) UI.Column {
     return root
 }
 
-class ConsoleSession:Viewer.CanvasSession {
-    private var runtime:UI.Runtime? = null
-
-    init(root:UI.View) { self.runtime = UI.Runtime(root) }
-
-    func drawing(width:int, height:int) Canvas.Canvas {
-        if var runtime = self.runtime { return runtime.drawing(width, height) }
-        panic("GFX.UI.Terminal console has no UI runtime")
-    }
-
-    func handle(event:@Input.Event) bool {
-        if var runtime = self.runtime { return UIInput.handle(runtime, event) }
-        return false
-    }
-
-    func update(delta:float) bool {
-        if var runtime = self.runtime { return runtime.update(delta) }
-        return false
-    }
-
-    func accepts_text_input() bool {
-        if var runtime = self.runtime { return runtime.accepts_text_input() }
-        return false
-    }
-}
-
 func main() {
-    var console = Terminal.Console(
-        Terminal.Size(columns:Layout.columns, rows:Layout.rows),
-        prompt:"silex> "
-    )
-    console.write_line("GFX.UI.Terminal application console")
-    console.write_line("type 'help' to list commands")
-
-    var root = interface(console)
-    var session = ConsoleSession(root)
+    var root = interface()
+    var session = UI.Session(root)
     if check_only() {
         var drawing = session.drawing(Layout.width, Layout.height)
         assert(drawing.command_count() > 4)

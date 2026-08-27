@@ -1,10 +1,22 @@
 use GFX.UI
 use GFX.UI.Terminal
 use GFX.Canvas
+use GFX.Input.Keyboard
 use STD.Text
 use STD.Console
 use STD.Error
+use STD.Math
 use STD.Process
+use STD.Subprocess
+
+static class ConsoleProbe {
+    var argument_count:int = 0
+
+    func status(arguments:str) str {
+        ConsoleProbe.argument_count = arguments.count()
+        return "application is running"
+    }
+}
 
 test "screen interprets cursor movement colors and UTF-8" {
     var screen = Terminal.Screen(Terminal.Size(columns:12, rows:3))
@@ -34,13 +46,19 @@ test "terminal views use a monospace font by default" {
 }
 
 test "terminal console views invalidate their UI runtime on screen changes" {
-    var console = Terminal.Console(Terminal.Size(columns:12, rows:3))
-    var view = Terminal.ConsoleView(console)
-    var runtime = UI.Runtime(view)
+    ConsoleProbe.argument_count = 0
+    var console = Terminal.Console(
+        commands:[Terminal.Command("status", ConsoleProbe.status)],
+        size:Terminal.Size(columns:24, rows:4)
+    )
+    var runtime = UI.Runtime(console)
     var initial = runtime.drawing(144, 84)
     assert(initial.command_count() > 1)
     assert(!runtime.update(0.016))
-    console.write("changed")
+    assert(runtime.pointer_pressed(Math.Vec2(10.0, 10.0)))
+    assert(runtime.insert_text("status verbose"))
+    assert(runtime.key_pressed(Keyboard.Key.enter))
+    assert(ConsoleProbe.argument_count == 7)
     assert(runtime.update(0.016))
     var changed = runtime.drawing(144, 84)
     assert(changed.command_count() > initial.command_count())
@@ -61,16 +79,18 @@ test "screen preserves its visible cells when resized" {
     assert(Text.starts_with(screen.line(1), "two"))
 }
 
-test "application console returns host commands without spawning a shell" {
-    var console = Terminal.Console(Terminal.Size(columns:24, rows:3), prompt:"silex> ")
-    console.type("reload")
-    console.backspace()
-    console.type("d")
-    assert(console.input() == "reload")
-    assert(console.submit() == "reload")
-    console.respond("application ready")
-    assert(Text.contains(console.screen().line(1), "application ready"))
-    assert(Text.starts_with(console.screen().line(2), "silex> "))
+test "application console dispatches declarative commands without spawning a shell" {
+    ConsoleProbe.argument_count = 0
+    var console = Terminal.Console(commands:[
+        Terminal.Command(
+            "status",
+            ConsoleProbe.status,
+            description:"Show application status"
+        )
+    ])
+    var session = UI.Session(console)
+    var drawing = session.drawing(824, 504)
+    assert(drawing.command_count() > 1)
 }
 
 test "system session feeds the shared terminal screen" {
@@ -78,24 +98,26 @@ test "system session feeds the shared terminal screen" {
         if value = Console.read_line() { Console.write("\u{1b}[32msystem:" + value + "\u{1b}[0m") }
     }
     func parent(executable:str) Result<void, Error> {
-        let command = Terminal.Command(
+        let command = Subprocess.TerminalCommand(
             executable:executable,
             arguments:["--gfx-terminal-child"],
             current_directory:null,
             inherit_environment:true,
-            environment:[Terminal.EnvironmentChange.set("TERM", "xterm-256color")],
+            environment:[Subprocess.EnvironmentChange.set("TERM", "xterm-256color")],
             size:Terminal.Size(columns:40, rows:4)
         )
         var session = try Terminal.spawn(command)
+        var terminal = Terminal.View(session)
+        var interface = UI.Session(terminal)
         try session.write("ready\n")
-        var exited = false
+        var changed = false
         var attempts = 0
-        while !exited && attempts < 40 {
-            let status = try session.update(250)
-            if value = status { exited = true }
+        while session.exit_status() == null && attempts < 100000 {
+            changed = interface.update(0.001) || changed
             attempts++
         }
-        assert(exited)
+        assert(session.exit_status() != null)
+        assert(changed)
         var visible = ""
         var row = 0
         while row < session.screen().rows() { visible = visible + session.screen().line(row); row++ }

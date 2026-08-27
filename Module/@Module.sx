@@ -9,9 +9,9 @@ use STD.System
 use STD.Text
 use STD.Text.UTF8
 
-public use STD.Subprocess.EnvironmentChange
-public use STD.Subprocess.ExitStatus
-public use STD.Subprocess.TerminalCommand as Command
+use STD.Subprocess.EnvironmentChange
+use STD.Subprocess.ExitStatus
+use STD.Subprocess.TerminalCommand as SystemCommand
 public use STD.Subprocess.TerminalSize as Size
 
 public struct Cell {
@@ -294,9 +294,10 @@ func max_int(left:int, right:int) int {
     return right
 }
 
-public class Session {
+package class Session {
     private var child:Subprocess.TerminalChild? = null
     private var terminal_screen:Screen
+    private var terminal_status:ExitStatus? = null
 
     module init(child:Subprocess.TerminalChild, size:Size) { self.child = child; self.terminal_screen = Screen(size) }
     func screen() @Screen { return self.terminal_screen }
@@ -325,6 +326,9 @@ public class Session {
         return Result<void, Error>.success()
     }
     func update(timeout_milliseconds:int = 0) Result<ExitStatus?, Error> {
+        if let status = self.terminal_status {
+            return Result<ExitStatus?, Error>.success(status)
+        }
         var wait = timeout_milliseconds
         var attempts = 0
         while attempts < 32 {
@@ -339,13 +343,17 @@ public class Session {
             if event = next {
                 match event {
                     output(stream, bytes) => { self.terminal_screen.feed(bytes) }
-                    exited(status) => { return Result<ExitStatus?, Error>.success(status) }
+                    exited(status) => {
+                        self.terminal_status = status
+                        return Result<ExitStatus?, Error>.success(status)
+                    }
                 }
             } else { return Result<ExitStatus?, Error>.success(null) }
             attempts++
         }
         return Result<ExitStatus?, Error>.success(null)
     }
+    func exit_status() ExitStatus? { return self.terminal_status }
     func terminate() Result<void, Error> {
         if var active = self.child { return active.terminate() }
         return Result<void, Error>.success()
@@ -356,17 +364,15 @@ public class Session {
     }
 }
 
-public func spawn(command:Command) Result<Session, Error> {
+package func spawn(command:SystemCommand) Result<Session, Error> {
     let size = command.size
     return Result<Session, Error>.success(Session(try Subprocess.spawn_terminal(command), size))
 }
 
-// Starts the conventional interactive shell for the active platform. Use
-// spawn(Command) when the executable, arguments or environment are deliberate
-// application choices.
-public func spawn_shell(size:Size = Size()) Result<Session, Error> {
+// Internal platform choice behind the public Terminal.Shell view.
+package func spawn_shell(size:Size = Size()) Result<Session, Error> {
     let command = match System.platform() {
-        macos => Command(
+        macos => SystemCommand(
             executable:"/bin/zsh",
             arguments:["-l"],
             current_directory:null,
@@ -374,7 +380,7 @@ public func spawn_shell(size:Size = Size()) Result<Session, Error> {
             environment:[EnvironmentChange.set("TERM", "xterm-256color")],
             size:size
         )
-        linux => Command(
+        linux => SystemCommand(
             executable:"/bin/sh",
             arguments:["-l"],
             current_directory:null,
@@ -382,7 +388,7 @@ public func spawn_shell(size:Size = Size()) Result<Session, Error> {
             environment:[EnvironmentChange.set("TERM", "xterm-256color")],
             size:size
         )
-        windows => Command(
+        windows => SystemCommand(
             executable:"cmd.exe",
             arguments:[],
             current_directory:null,
@@ -394,7 +400,7 @@ public func spawn_shell(size:Size = Size()) Result<Session, Error> {
     return spawn(command)
 }
 
-public class Console {
+class ConsoleState {
     private var console_screen:Screen
     private var current_input:str
     private let prompt_text:str
@@ -408,8 +414,6 @@ public class Console {
 
     func screen() @Screen { return self.console_screen }
     func input() str { return self.current_input }
-    func write(value:str) { self.console_screen.feed(value) }
-    func write_line(value:str) { self.console_screen.feed(value + "\n") }
     func type(value:str) { self.current_input = self.current_input + value; self.console_screen.feed(value) }
     func backspace() {
         let count = self.current_input.count()
@@ -423,9 +427,38 @@ public class Console {
         self.console_screen.feed("\n")
         return command
     }
-    func respond(value:str) { self.console_screen.feed(value + "\n" + self.prompt_text) }
+    func respond(value:str) {
+        if value != "" { self.console_screen.feed(value + "\n") }
+        self.console_screen.feed(self.prompt_text)
+    }
+    func welcome(lines:@str[]) {
+        self.console_screen.clear()
+        for line in lines { self.console_screen.feed(line + "\n") }
+        self.console_screen.feed(self.prompt_text)
+    }
     func clear() { self.console_screen.clear(); self.console_screen.feed(self.prompt_text + self.current_input) }
-    func resize(size:Size) { self.console_screen.resize(size) }
+}
+
+// One application command exposed by Terminal.Console. The console parses the
+// command name and passes the remaining text to the action as arguments.
+public struct Command {
+    let name:str
+    let description:str
+    private let action:func(str) str
+
+    init(name:str, action:func(str) str, description:str = "") {
+        if name == "" || Text.trim(name) != name || Text.contains(name, " ") || Text.contains(name, "\t") {
+            panic("terminal command names must be one non-empty word")
+        }
+        if name == "help" || name == "clear" {
+            panic("terminal command names 'help' and 'clear' are built in")
+        }
+        self.name = name
+        self.description = description
+        self.action = action
+    }
+
+    package func run(arguments:str) str { return self.action(arguments) }
 }
 
 public struct Theme {
@@ -470,23 +503,27 @@ func panic_on_session_error(error:@Error) {
     panic(error.operation + ": " + error.detail)
 }
 
-func ignore_submission(command:str, console:&Console) {}
+func ignore_exit() {}
 
 class SessionContent:UI.Content {
     private var current_session:Session? = null
     private var settings:ViewSettings
     private var on_error:func(@Error)
+    private var on_exit:func()
     private var current_revision:int
     private var focused:bool = false
+    private var polling:bool = true
 
     init(
         session:Session,
         settings:ViewSettings,
-        on_error:func(@Error)
+        on_error:func(@Error),
+        on_exit:func()
     ) {
         self.current_session = session
         self.settings = settings
         self.on_error = on_error
+        self.on_exit = on_exit
         self.current_revision = session.screen().revision()
     }
 
@@ -520,6 +557,20 @@ class SessionContent:UI.Content {
     }
     func update(delta:float) bool {
         var session = self.session()
+        if self.polling {
+            match session.update() {
+                failure(error) => {
+                    self.polling = false
+                    self.on_error(error)
+                }
+                success(status) => {
+                    if let exited = status {
+                        self.polling = false
+                        self.on_exit()
+                    }
+                }
+            }
+        }
         let revision = session.screen().revision()
         if revision == self.current_revision { return false }
         self.current_revision = revision
@@ -561,20 +612,21 @@ class SessionContent:UI.Content {
 }
 
 class ConsoleContent:UI.Content {
-    private var current_console:Console? = null
+    private var current_console:ConsoleState? = null
     private var settings:ViewSettings
-    private var on_submit:func(str, &Console)
+    private var commands:Command[]
     private var current_revision:int
     private var focused:bool = false
 
     init(
-        console:Console,
+        console:ConsoleState,
         settings:ViewSettings,
-        on_submit:func(str, &Console)
+        commands:Command[]
     ) {
         self.current_console = console
         self.settings = settings
-        self.on_submit = on_submit
+        validate_commands(commands)
+        self.commands = commands
         self.current_revision = console.screen().revision()
     }
 
@@ -626,40 +678,120 @@ class ConsoleContent:UI.Content {
         if key == Keyboard.Key.backspace { console.backspace(); return true }
         if key == Keyboard.Key.enter {
             let command = console.submit()
-            self.on_submit(command, console)
+            dispatch(command, console, self.commands)
             return true
         }
         return false
     }
 
 
-    private func console() Console {
+    private func console() ConsoleState {
         if var console = self.current_console { return console }
         panic("GFX.UI.Terminal console view has no console")
     }
 }
 
-// A real PTY/ConPTY terminal leaf composable in any GFX.UI tree. Process
-// polling remains explicit through Session.update; UI.Runtime owns only view
-// invalidation, focus and input routing.
-public class View:UI.CustomView {
+package class View:UI.CustomView {
     init(
         session:Session,
         settings:ViewSettings = ViewSettings(),
         on_error:func(@Error) = panic_on_session_error,
+        on_exit:func() = ignore_exit,
         style:UI.Style = UI.Style()
-    ):super(SessionContent(session, settings, on_error), style) {}
+    ):super(SessionContent(session, settings, on_error, on_exit), style) {}
 }
 
-// An application-owned command console with the same UI composition and
-// rendering contract, but no process or shell access.
-public class ConsoleView:UI.CustomView {
+// A system terminal view. It owns the platform shell, process polling and
+// cleanup so callers only compose a UI control.
+public class Shell:UI.CustomView {
     init(
-        console:Console,
+        size:Size = Size(),
         settings:ViewSettings = ViewSettings(),
-        on_submit:func(str, &Console) = ignore_submission,
+        on_error:func(@Error) = panic_on_session_error,
+        on_exit:func() = ignore_exit,
         style:UI.Style = UI.Style()
-    ):super(ConsoleContent(console, settings, on_submit), style) {}
+    ):super(SessionContent(shell_session(size), settings, on_error, on_exit), style) {}
+}
+
+// An application command terminal. It owns its editor and screen, dispatches
+// declarative commands and never starts a system process.
+public class Console:UI.CustomView {
+    init(
+        commands:Command[] = [],
+        size:Size = Size(),
+        prompt:str = "silex> ",
+        welcome:str[] = [],
+        settings:ViewSettings = ViewSettings(),
+        style:UI.Style = UI.Style()
+    ):super(
+        ConsoleContent(console_state(size, prompt, welcome), settings, commands),
+        style
+    ) {}
+}
+
+func shell_session(size:Size) Session {
+    match spawn_shell(size) {
+        failure(error) => { panic(error.operation + ": " + error.detail) }
+        success(session) => { return session }
+    }
+    panic("GFX.UI.Terminal could not create a shell session")
+}
+
+func console_state(size:Size, prompt:str, welcome:str[]) ConsoleState {
+    var state = ConsoleState(size, prompt)
+    if welcome.count() > 0 { state.welcome(welcome) }
+    return state
+}
+
+struct ParsedCommand { let name:str; let arguments:str }
+
+func parse_command(value:str) ParsedCommand {
+    let line = Text.trim(value)
+    if line == "" { return ParsedCommand(name:"", arguments:"") }
+    if separator = Text.index_of(line, " ") {
+        return ParsedCommand(
+            name:Text.slice(line, 0, separator),
+            arguments:Text.trim(Text.slice(line, separator + 1, line.count()))
+        )
+    }
+    return ParsedCommand(name:line, arguments:"")
+}
+
+func validate_commands(commands:@Command[]) {
+    var index = 0
+    while index < commands.count() {
+        var compared = index + 1
+        while compared < commands.count() {
+            if commands[index].name == commands[compared].name {
+                panic("terminal commands must have unique names")
+            }
+            compared++
+        }
+        index++
+    }
+}
+
+func dispatch(value:str, console:&ConsoleState, commands:@Command[]) {
+    let parsed = parse_command(value)
+    if parsed.name == "" { console.respond(""); return }
+    if parsed.name == "clear" { console.clear(); return }
+    if parsed.name == "help" { console.respond(command_help(commands)); return }
+    for command in commands {
+        if command.name == parsed.name {
+            console.respond(command.run(parsed.arguments))
+            return
+        }
+    }
+    console.respond("unknown command: " + parsed.name + " (type 'help')")
+}
+
+func command_help(commands:@Command[]) str {
+    var result = "commands:\n  help - List available commands\n  clear - Clear the console"
+    for command in commands {
+        result = result + "\n  " + command.name
+        if command.description != "" { result = result + " - " + command.description }
+    }
+    return result
 }
 
 public func drawing(screen:@Screen, settings:ViewSettings = ViewSettings()) Canvas.Canvas {

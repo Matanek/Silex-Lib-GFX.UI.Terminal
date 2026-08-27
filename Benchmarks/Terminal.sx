@@ -1,5 +1,6 @@
 use GFX.UI
 use GFX.UI.Terminal
+use STD.Math
 use STD.Time.Stopwatch
 
 func populated_screen() Terminal.Screen {
@@ -36,19 +37,21 @@ func main() {
     }
     full.stop()
 
-    var console = Terminal.Console(Terminal.Size(columns:100, rows:30))
-    console.write(full_screen.line(0))
-    var view = Terminal.ConsoleView(console)
-    var runtime = UI.Runtime(view)
+    var console = Terminal.Console(
+        size:Terminal.Size(columns:100, rows:30),
+        welcome:[full_screen.line(0)]
+    )
+    var runtime = UI.Runtime(console)
     var initial = runtime.drawing(1024, 624)
     assert(initial.command_count() > 0)
+    assert(runtime.pointer_pressed(Math.Vec2(10.0, 10.0)))
 
     var composed = Stopwatch()
     composed.start()
     var invalidations = 0
     frame = 0
     while frame < 10 {
-        console.write("x")
+        runtime.insert_text("x")
         if runtime.update(0.0) {
             var drawing = runtime.drawing(1024, 624)
             var snapshot = drawing.snapshot(1024, 624)

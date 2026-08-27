@@ -1,11 +1,7 @@
-use GFX.Canvas
 use GFX.Color
-use GFX.Input
 use GFX.UI
-use GFX.UI.Input as UIInput
 use GFX.UI.Terminal
 use GFX.Viewer
-use STD.Error
 use STD.Process
 
 static struct Layout {
@@ -27,12 +23,15 @@ func check_only() bool {
     return false
 }
 
-func interface(session:Terminal.Session) UI.Column {
+func interface() UI.Column {
     var heading = UI.Text("System terminal")
     heading.style.font_size = 22.0
     heading.style.font_weight = UI.FontWeight.bold
 
-    var terminal = Terminal.View(session)
+    var terminal = Terminal.Shell(size:Terminal.Size(
+        columns:Layout.columns,
+        rows:Layout.rows
+    ))
     terminal.style.grow = 1.0
 
     let children:UI.View[] = [heading, terminal]
@@ -44,76 +43,27 @@ func interface(session:Terminal.Session) UI.Column {
     return root
 }
 
-class SystemSession:Viewer.CanvasSession {
-    private var terminal:Terminal.Session? = null
-    private var runtime:UI.Runtime? = null
-    private var exited:bool = false
-
-    init(terminal:Terminal.Session, root:UI.View) {
-        self.terminal = terminal
-        self.runtime = UI.Runtime(root)
-    }
-
-    func drawing(width:int, height:int) Canvas.Canvas {
-        if var runtime = self.runtime { return runtime.drawing(width, height) }
-        panic("GFX.UI.Terminal system terminal has no UI runtime")
-    }
-
-    func handle(event:@Input.Event) bool {
-        if var runtime = self.runtime { return UIInput.handle(runtime, event) }
-        return false
-    }
-
-    func update(delta:float) bool {
-        if !self.exited {
-            if var terminal = self.terminal {
-                match terminal.update() {
-                    failure(error) => { panic(error.operation + ": " + error.detail) }
-                    success(status) => {
-                        if status != null { self.exited = true }
-                    }
-                }
-            }
-        }
-        if var runtime = self.runtime { return runtime.update(delta) }
-        return false
-    }
-
-    func accepts_text_input() bool {
-        if var runtime = self.runtime { return runtime.accepts_text_input() }
-        return false
-    }
-}
-
-func run_terminal() Result<void, Error> {
-    var terminal = try Terminal.spawn_shell(Terminal.Size(
-        columns:Layout.columns,
-        rows:Layout.rows
-    ))
-    var root = interface(terminal)
-    var session = SystemSession(terminal, root)
-    Viewer.show(session, Viewer.CanvasSettings(
+func run_terminal() {
+    var root = interface()
+    Viewer.show(UI.Session(root), Viewer.CanvasSettings(
         width:Layout.width,
         height:Layout.height,
         title:"GFX.UI.Terminal — System terminal",
         background:Color.slate_950()
     ))
-    return Result<void, Error>.success()
 }
 
 func main() {
     if check_only() {
-        var console = Terminal.Console(Terminal.Size(columns:40, rows:6))
-        console.write("GFX.UI.Terminal check")
-        var view = Terminal.ConsoleView(console)
-        var runtime = UI.Runtime(view)
-        var drawing = runtime.drawing(424, 144)
+        var console = Terminal.Console(
+            size:Terminal.Size(columns:40, rows:6),
+            welcome:["GFX.UI.Terminal check"]
+        )
+        var session = UI.Session(console)
+        var drawing = session.drawing(424, 144)
         assert(drawing.command_count() > 2)
         print("GFX.UI.Terminal system view rendered")
         return
     }
-    match run_terminal() {
-        failure(error) => { panic(error.operation + ": " + error.detail) }
-        success => {}
-    }
+    run_terminal()
 }
