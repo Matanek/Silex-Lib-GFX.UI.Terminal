@@ -39,10 +39,35 @@ var terminal = Terminal.Console(
 )
 ```
 
-`Terminal.Shell` owns the platform process, its PTY/ConPTY session, nonblocking
-polling and cleanup. Both modes invalidate through their surrounding
+By default, `Terminal.Shell` owns the platform process and its lifecycle.
+Its PTY/ConPTY transport, nonblocking polling and cleanup remain internal.
+Both modes invalidate through their surrounding
 `UI.Runtime`; `UI.Session` supplies that behavior to any `Canvas.Session`
 presenter. None of these layers introduces an application-world dependency.
+
+Applications that own several terminal tabs can make the lifecycle explicit:
+
+```sx
+var process = Terminal.ShellSession()
+var terminal = Terminal.Shell(
+    session:process,
+    on_exit:func() {
+        // Remove this terminal's tab. The application may close its window
+        // separately when no tabs remain.
+    }
+)
+
+match process.close() {
+    failure(error) => { panic(error.operation + ": " + error.detail) }
+    success => {}
+}
+```
+
+`ShellSession.close()` terminates only that shell. It never closes an
+application window. `on_exit` runs once after the terminal observes the child
+exit, whether it was requested through `close()` or initiated by the shell.
+Once exited, the view stops accepting input; late key or text events are
+ignored instead of being reported as broken-pipe runtime errors.
 
 Visible cells with the same text style are retained as fixed-advance Canvas
 runs. A typical row therefore uses one text texture and one Scene2D draw while

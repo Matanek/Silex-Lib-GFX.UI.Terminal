@@ -6,9 +6,63 @@ use STD.Math
 func status(arguments:str) str { return "accepted: " + arguments }
 
 test "consumer creates a system shell as a UI view" {
-    var shell = Terminal.Shell(size:Terminal.Size(columns:20, rows:4))
+    var process = Terminal.ShellSession(size:Terminal.Size(columns:20, rows:4))
+    var shell = Terminal.Shell(session:process)
     var session = UI.Session(shell)
     assert(session.drawing(240, 140).command_count() > 0)
+    assert(process.is_running())
+    match process.close() {
+        failure(error) => { panic(error.operation + ": " + error.detail) }
+        success => {}
+    }
+}
+
+test "consumer controls shell sessions independently" {
+    var first = Terminal.ShellSession(size:Terminal.Size(columns:20, rows:4))
+    var second = Terminal.ShellSession(size:Terminal.Size(columns:20, rows:4))
+    var first_exits = 0
+    var second_exits = 0
+    var first_view = Terminal.Shell(
+        session:first,
+        on_exit:func() { first_exits++ }
+    )
+    var second_view = Terminal.Shell(
+        session:second,
+        on_exit:func() { second_exits++ }
+    )
+    let tabs:UI.View[] = [
+        first_view,
+        second_view
+    ]
+    var runtime = UI.Runtime(UI.Column(tabs))
+    var drawing = runtime.drawing(240, 280)
+    assert(drawing.command_count() > 0)
+
+    match first.close() {
+        failure(error) => { panic(error.operation + ": " + error.detail) }
+        success => {}
+    }
+    var attempts = 0
+    while first.is_running() && attempts < 100000 {
+        runtime.update(0.001)
+        attempts++
+    }
+    assert(!first.is_running())
+    assert(second.is_running())
+    assert(first_exits == 1)
+    assert(second_exits == 0)
+    match second.close() {
+        failure(error) => { panic(error.operation + ": " + error.detail) }
+        success => {}
+    }
+    attempts = 0
+    while second.is_running() && attempts < 100000 {
+        runtime.update(0.001)
+        attempts++
+    }
+    assert(!second.is_running())
+    assert(first_exits == 1)
+    assert(second_exits == 1)
 }
 
 test "consumer can build a themed terminal drawing" {

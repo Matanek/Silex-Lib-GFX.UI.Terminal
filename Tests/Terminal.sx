@@ -128,7 +128,9 @@ test "system session feeds the shared terminal screen" {
         )
         var session = try Terminal.spawn(command)
         var terminal = Terminal.View(session)
-        var interface = UI.Session(terminal)
+        var interface = UI.Runtime(terminal)
+        var initial = interface.drawing(424, 104)
+        assert(initial.command_count() > 0)
         try session.write("ready\n")
         var changed = false
         var attempts = 0
@@ -138,6 +140,9 @@ test "system session feeds the shared terminal screen" {
         }
         assert(session.exit_status() != null)
         assert(changed)
+        assert(interface.pointer_pressed(Math.Vec2(10.0, 10.0)))
+        assert(!interface.accepts_text_input())
+        assert(!interface.insert_text("after exit"))
         var visible = ""
         var row = 0
         while row < session.screen().rows() { visible = visible + session.screen().line(row); row++ }

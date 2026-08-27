@@ -52,10 +52,20 @@ var terminal = Terminal.Shell()
 Viewer.show(UI.Session(terminal))
 ```
 
-The PTY/ConPTY session, process lifecycle, writes, resize synchronization and
-polling are implementation details of `Shell`. Automatic polling is part of
-the terminal content update, not an Application system, so neither GFX.UI nor
+The PTY/ConPTY transport, writes, resize synchronization and polling are
+implementation details of `Shell`. Automatic polling is part of the terminal
+content update, not an Application system, so neither GFX.UI nor
 GFX.UI.Terminal depends on ECS or a game world.
+
+For a one-terminal window, `Terminal.Shell()` owns that lifecycle implicitly.
+Tabbed applications can instead retain a `Terminal.ShellSession` and pass it
+to the view with `Terminal.Shell(session:process, on_exit:...)`.
+`process.close()` terminates that shell only. The `on_exit` callback lets the
+application remove the corresponding tab and decide whether an empty tab set
+should also close its window. Terminal never makes that window-level decision.
+After an exit is observed, the view no longer accepts input and discards late
+key events without treating the expected closed input stream as a runtime
+error.
 
 ## Rendering and emulation
 

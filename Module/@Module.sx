@@ -549,7 +549,7 @@ class SessionContent:UI.Content {
     }
 
     func focusable() bool { return true }
-    func accepts_text_input() bool { return true }
+    func accepts_text_input() bool { return self.polling }
     func focus_changed(focused:bool) bool {
         if self.focused == focused { return false }
         self.focused = focused
@@ -577,6 +577,7 @@ class SessionContent:UI.Content {
         return true
     }
     func insert_text(value:str) bool {
+        if !self.polling { return false }
         var session = self.session()
         return send(session, value, self.on_error)
     }
@@ -584,6 +585,7 @@ class SessionContent:UI.Content {
         key:Keyboard.Key,
         modifiers:Keyboard.Modifiers
     ) bool {
+        if !self.polling { return false }
         if modifiers.control {
             if key == Keyboard.Key.c { return self.send_key("\u{3}") }
             if key == Keyboard.Key.d { return self.send_key("\u{4}") }
@@ -691,6 +693,31 @@ class ConsoleContent:UI.Content {
     }
 }
 
+// Owns one system shell independently from the UI view that presents it.
+// Applications with tabs can close one session without closing their window.
+public class ShellSession {
+    private var current_session:Session? = null
+
+    init(size:Size = Size()) { self.current_session = shell_session(size) }
+
+    func close() Result<void, Error> {
+        var session = self.session()
+        return session.terminate()
+    }
+
+    func is_running() bool {
+        var session = self.session()
+        return session.is_running()
+    }
+
+    package func retained_session() Session { return self.session() }
+
+    private func session() Session {
+        if var session = self.current_session { return session }
+        panic("GFX.UI.Terminal shell session has no process")
+    }
+}
+
 package class View:UI.CustomView {
     init(
         session:Session,
@@ -709,8 +736,17 @@ public class Shell:UI.CustomView {
         settings:ViewSettings = ViewSettings(),
         on_error:func(@Error) = panic_on_session_error,
         on_exit:func() = ignore_exit,
-        style:UI.Style = UI.Style()
-    ):super(SessionContent(shell_session(size), settings, on_error, on_exit), style) {}
+        style:UI.Style = UI.Style(),
+        session:ShellSession? = null
+    ):super(
+        SessionContent(
+            resolved_shell_session(size, session),
+            settings,
+            on_error,
+            on_exit
+        ),
+        style
+    ) {}
 }
 
 // An application command terminal. It owns its editor and screen, dispatches
@@ -735,6 +771,11 @@ func shell_session(size:Size) Session {
         success(session) => { return session }
     }
     panic("GFX.UI.Terminal could not create a shell session")
+}
+
+func resolved_shell_session(size:Size, controlled:ShellSession?) Session {
+    if var session = controlled { return session.retained_session() }
+    return shell_session(size)
 }
 
 func console_state(size:Size, prompt:str, welcome:str[]) ConsoleState {
@@ -818,8 +859,13 @@ func intrinsic_size(screen:@Screen, settings:ViewSettings) Math.Vec2 {
 }
 
 func send(session:@Session, value:str, on_error:func(@Error)) bool {
+    if session.exit_status() != null || !session.is_running() { return false }
     match session.write(value) {
-        failure(error) => { on_error(error); return false }
+        failure(error) => {
+            if error.kind == Error.Kind.broken_pipe() { return false }
+            on_error(error)
+            return false
+        }
         success => { return true }
     }
 }
