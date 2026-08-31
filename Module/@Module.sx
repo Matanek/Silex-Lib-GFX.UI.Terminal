@@ -21,6 +21,165 @@ public struct Cell {
     let bold:bool
 }
 
+struct PaintTextRun {
+    let start:int
+    let value:str
+    let foreground:int
+    let bold:bool
+}
+
+struct PaintBackgroundRun {
+    let start:int
+    let length:int
+    let background:int
+}
+
+class ScreenPaintCache {
+    private var valid:bool[] = []
+    private var text_values:PaintTextRun[][] = []
+    private var background_values:PaintBackgroundRun[][] = []
+    private var builds:int = 0
+
+    init(rows:int) { self.reset(rows) }
+
+    func build_count() int { return self.builds }
+
+    func invalidate(row:int) {
+        if row >= 0 && row < self.valid.count() { self.valid[row] = false }
+    }
+
+    func reset(rows:int) {
+        self.valid = []
+        self.text_values = []
+        self.background_values = []
+        var row = 0
+        while row < rows {
+            self.valid.append(false)
+            var text:PaintTextRun[] = []
+            var backgrounds:PaintBackgroundRun[] = []
+            self.text_values.append(text)
+            self.background_values.append(backgrounds)
+            row++
+        }
+    }
+
+    func scroll_up() {
+        if self.valid.count() == 0 { return }
+        var next_valid:bool[] = []
+        var next_text:PaintTextRun[][] = []
+        var next_backgrounds:PaintBackgroundRun[][] = []
+        var row = 1
+        while row < self.valid.count() {
+            next_valid.append(self.valid[row])
+            next_text.append(self.text_values[row])
+            next_backgrounds.append(self.background_values[row])
+            row++
+        }
+        next_valid.append(false)
+        var text:PaintTextRun[] = []
+        var backgrounds:PaintBackgroundRun[] = []
+        next_text.append(text)
+        next_backgrounds.append(backgrounds)
+        self.valid = next_valid
+        self.text_values = next_text
+        self.background_values = next_backgrounds
+    }
+
+    func text_runs(cells:@Cell[], row:int, columns:int, total_columns:int) PaintTextRun[] {
+        if columns != total_columns {
+            return self.build_text_runs(cells, row, columns, total_columns)
+        }
+        self.ensure(cells, row, total_columns)
+        return self.text_values[row]
+    }
+
+    func background_runs(
+        cells:@Cell[],
+        row:int,
+        columns:int,
+        total_columns:int
+    ) PaintBackgroundRun[] {
+        if columns != total_columns {
+            return self.build_background_runs(cells, row, columns, total_columns)
+        }
+        self.ensure(cells, row, total_columns)
+        return self.background_values[row]
+    }
+
+    private func ensure(cells:@Cell[], row:int, columns:int) {
+        if row < 0 || row >= self.valid.count() { panic("terminal row is outside the screen") }
+        if self.valid[row] { return }
+        self.text_values[row] = self.build_text_runs(cells, row, columns, columns)
+        self.background_values[row] = self.build_background_runs(cells, row, columns, columns)
+        self.valid[row] = true
+        self.builds++
+    }
+
+    private func build_text_runs(
+        cells:@Cell[],
+        row:int,
+        columns:int,
+        total_columns:int
+    ) PaintTextRun[] {
+        var result:PaintTextRun[] = []
+        var start = 0
+        while start < columns {
+            let first = cells[row * total_columns + start]
+            var values:str[] = []
+            var visible = false
+            var column = start
+            while column < columns {
+                let cell = cells[row * total_columns + column]
+                if column > start &&
+                    (cell.foreground != first.foreground || cell.bold != first.bold)
+                {
+                    break
+                }
+                values.append(cell.text)
+                visible = cell.text != " " || visible
+                column++
+            }
+            if visible {
+                result.append(PaintTextRun(
+                    start:start,
+                    value:Text.join(values, ""),
+                    foreground:first.foreground,
+                    bold:first.bold
+                ))
+            }
+            start = column
+        }
+        return result
+    }
+
+    private func build_background_runs(
+        cells:@Cell[],
+        row:int,
+        columns:int,
+        total_columns:int
+    ) PaintBackgroundRun[] {
+        var result:PaintBackgroundRun[] = []
+        var column = 0
+        while column < columns {
+            let background = cells[row * total_columns + column].background
+            if background < 0 { column++; continue }
+            let start = column
+            column++
+            while column < columns &&
+                cells[row * total_columns + column].background == background
+            {
+                column++
+            }
+            result.append(PaintBackgroundRun(
+                start:start,
+                length:column - start,
+                background:background
+            ))
+        }
+        return result
+    }
+}
+
 func blank_cell() Cell { return Cell(text:" ", foreground:-1, background:-1, bold:false) }
 
 public class Screen {
@@ -38,6 +197,7 @@ public class Screen {
     private var parameter:int
     private var has_parameter:bool
     private var utf8:uint8[]
+    private var paint_cache:ScreenPaintCache
 
     init(size:Size = Size()) {
         self.current_revision = 0
@@ -54,6 +214,7 @@ public class Screen {
         self.parameter = 0
         self.has_parameter = false
         self.utf8 = []
+        self.paint_cache = ScreenPaintCache(size.rows)
         self.clear()
     }
 
@@ -73,6 +234,9 @@ public class Screen {
         while column < self.column_count { value = value + self.cell(column, row).text; column++ }
         return value
     }
+    package func paint_cache_build_count() int { return self.paint_cache.build_count() }
+    module func retained_paint_cache() ScreenPaintCache { return self.paint_cache }
+    module func retained_cells() @Cell[] { return self.cells }
 
     func clear() {
         self.cells = []
@@ -211,7 +375,8 @@ public class Screen {
         while shifted.count() < self.column_count * self.row_count { shifted.append(blank_cell()) }
         self.cells = shifted
         self.cursor_row = self.row_count - 1
-        self.touch_all_rows()
+        self.current_revision++
+        self.paint_cache.scroll_up()
     }
 
     private func push_parameter() {
@@ -270,10 +435,12 @@ public class Screen {
     private func touch_row(row:int) {
         if row < 0 || row >= self.row_count { return }
         self.current_revision++
+        self.paint_cache.invalidate(row)
     }
 
     private func touch_all_rows() {
         self.current_revision++
+        self.paint_cache.reset(self.row_count)
     }
 }
 
@@ -938,14 +1105,22 @@ func paint_row(
     opacity:float,
     focused:bool
 ) {
-    var column = 0
-    while column < columns {
-        let cell = screen.cell(column, row)
-        let position = Math.Vec2(origin.x + column as float * settings.cell_width, origin.y)
-        if cell.background >= 0 {
-            painter.fill(Canvas.Rect(position, Math.Vec2(settings.cell_width, settings.cell_height)), Canvas.Fill.solid(with_opacity(settings.theme.color(cell.background, settings.theme.background), opacity)))
-        }
-        column++
+    var cache = screen.retained_paint_cache()
+    for run in cache.background_runs(screen.retained_cells(), row, columns, screen.columns()) {
+        let position = Math.Vec2(
+            origin.x + run.start as float * settings.cell_width,
+            origin.y
+        )
+        painter.fill(
+            Canvas.Rect(
+                position,
+                Math.Vec2(run.length as float * settings.cell_width, settings.cell_height)
+            ),
+            Canvas.Fill.solid(with_opacity(
+                settings.theme.color(run.background, settings.theme.background),
+                opacity
+            ))
+        )
     }
     paint_text_runs(painter, screen, row, columns, settings, origin, opacity)
     if settings.cursor_visible && focused && screen.cursor_y() == row &&
@@ -965,45 +1140,18 @@ func paint_text_runs(
     origin:Math.Vec2,
     opacity:float
 ) {
-    var start = 0
-    var foreground = -1
-    var bold = false
-    var value:str[] = []
-    var visible = false
-    var column = 0
-    while column <= columns {
-        var same_style = false
-        if column < columns {
-            let cell = screen.cell(column, row)
-            same_style = column == start ||
-                (cell.foreground == foreground && cell.bold == bold)
-            if same_style {
-                if column == start {
-                    foreground = cell.foreground
-                    bold = cell.bold
-                }
-                value.append(cell.text)
-                visible = cell.text != " " || visible
-            }
-        }
-        if !same_style {
-            if visible {
-                paint_text_run(
-                    painter,
-                    Text.join(value, ""),
-                    start,
-                    foreground,
-                    bold,
-                    settings,
-                    origin,
-                    opacity
-                )
-            }
-            if column >= columns { return }
-            start = column
-            value = []
-            visible = false
-        } else { column++ }
+    var cache = screen.retained_paint_cache()
+    for run in cache.text_runs(screen.retained_cells(), row, columns, screen.columns()) {
+        paint_text_run(
+            painter,
+            run.value,
+            run.start,
+            run.foreground,
+            run.bold,
+            settings,
+            origin,
+            opacity
+        )
     }
 }
 

@@ -53,6 +53,36 @@ test "terminal text runs keep their full width at Retina scale" {
     assert(third.image.width() == 40)
 }
 
+test "terminal drawing rebuilds only touched row paint caches" {
+    var screen = Terminal.Screen(Terminal.Size(columns:8, rows:3))
+    screen.feed("first\nsecond")
+    var first = Terminal.drawing(screen)
+    assert(first.command_count() > 1)
+    assert(screen.paint_cache_build_count() == 3)
+    var unchanged = Terminal.drawing(screen)
+    assert(unchanged.command_count() == first.command_count())
+    assert(screen.paint_cache_build_count() == 3)
+    screen.feed("x")
+    var changed = Terminal.drawing(screen)
+    assert(changed.command_count() > 1)
+    assert(screen.paint_cache_build_count() == 4)
+}
+
+test "terminal scrolling retains paint caches for shifted rows" {
+    var screen = Terminal.Screen(Terminal.Size(columns:8, rows:3))
+    screen.feed("one\ntwo\nthree")
+    var first = Terminal.drawing(screen)
+    assert(first.command_count() > 1)
+    assert(screen.paint_cache_build_count() == 3)
+    screen.feed("\nfour")
+    var scrolled = Terminal.drawing(screen)
+    assert(scrolled.command_count() > 1)
+    assert(screen.paint_cache_build_count() == 4)
+    assert(screen.line(0) == "two     ")
+    assert(screen.line(1) == "three   ")
+    assert(screen.line(2) == "four    ")
+}
+
 test "terminal views use a monospace font by default" {
     var drawing = Canvas.Canvas()
     var settings = Terminal.ViewSettings()
