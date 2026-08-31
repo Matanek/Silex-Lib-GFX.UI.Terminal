@@ -746,6 +746,7 @@ class SessionContent:UI.Content {
         self.current_revision = revision
         return true
     }
+    func pointer_scrolled(delta:Math.Vec2) bool { return false }
     func insert_text(value:str) bool {
         if !self.polling { return false }
         var session = self.session()
@@ -844,6 +845,7 @@ class ConsoleContent:UI.Content {
         self.focused = focused
         return self.settings.cursor_visible
     }
+    func pointer_scrolled(delta:Math.Vec2) bool { return false }
     func update(delta:float) bool {
         var console = self.console()
         let revision = console.screen().revision()
