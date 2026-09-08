@@ -1,16 +1,16 @@
 {
   "name": "GFX.UI.Terminal",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": {
     "en": "Composable ANSI/VT terminal and application-console controls for GFX.UI.",
     "fr": "Contrôles composables de terminal ANSI/VT et de console d’application pour GFX.UI."
   },
   "authors": ["Matanek"],
-  "requires": { "silex": ">=0.43.0" },
+  "requires": { "silex": ">=0.44.0" },
   "dependencies": {
-    "GFX": "^0.39.0",
-    "GFX.Canvas": "^0.3.0",
-    "GFX.UI": "^0.1.0",
-    "STD": "^0.20.0"
+    "GFX": "^0.40.0",
+    "GFX.Canvas": "^0.4.0",
+    "GFX.UI": "^0.2.0",
+    "STD": "^0.22.0"
   }
 }
