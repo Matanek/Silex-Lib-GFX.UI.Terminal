@@ -22,7 +22,7 @@ test "consumer creates a system shell as a UI view" {
     var session = UI.Session(shell)
     assert(session.drawing(240, 140).command_count() > 0)
     assert(process.is_running())
-    match process.close() {
+    match (try process.close()) {
         failure(error) => { panic(error.operation + ": " + error.detail) }
         success => {}
     }
@@ -61,7 +61,7 @@ test "consumer controls shell sessions independently" {
     assert(second.is_running())
     assert(first_exits == 1)
     assert(second_exits == 0)
-    match second.close() {
+    match (try second.close()) {
         failure(error) => { panic(error.operation + ": " + error.detail) }
         success => {}
     }

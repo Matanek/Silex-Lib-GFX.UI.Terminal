@@ -343,7 +343,7 @@ public class Screen {
                 var index = 0
                 while index < needed { encoded.append(self.utf8[index]); index++ }
                 let view = @encoded[0:encoded.count()]
-                match UTF8.decode(view) { failure(error) => { self.put("?") }; success(text) => { self.put(text) } }
+                match (try UTF8.decode(view)) { failure(error) => { self.put("?") }; success(text) => { self.put(text) } }
                 self.drop_utf8(needed)
                 progress = true
             }
@@ -474,7 +474,7 @@ package class Session {
         while offset < bytes.count() {
             let view = @bytes[offset:bytes.count()]
             if var active = self.child {
-                match active.write(view) {
+                match (try active.write(view)) {
                     failure(error) => { return Result<void, Error>.failure(error) }
                     success(count) => { offset += count }
                 }
@@ -484,7 +484,7 @@ package class Session {
     }
     func resize(size:Size) Result<void, Error> {
         if var active = self.child {
-            match active.resize(size) {
+            match (try active.resize(size)) {
                 failure(error) => { return Result<void, Error>.failure(error) }
                 success => {}
             }
@@ -501,7 +501,7 @@ package class Session {
         while attempts < 32 {
             var next:Subprocess.Event? = null
             if var active = self.child {
-                match active.next_event(wait) {
+                match (try active.next_event(wait)) {
                     failure(error) => { return Result<ExitStatus?, Error>.failure(error) }
                     success(event) => { next = event }
                 }
@@ -522,7 +522,7 @@ package class Session {
     }
     func exit_status() ExitStatus? { return self.terminal_status }
     func terminate() Result<void, Error> {
-        if var active = self.child { return active.terminate() }
+        if var active = self.child { return (try active.terminate()) }
         return Result<void, Error>.success()
     }
     func is_running() bool {
@@ -533,7 +533,7 @@ package class Session {
 
 package func spawn(command:SystemCommand) Result<Session, Error> {
     let size = command.size
-    return Result<Session, Error>.success(Session(try Subprocess.spawn_terminal(command), size))
+    return Result<Session, Error>.success(Session(try Subprocess.spawn_terminal(command) else error { return Result<Session,Error>.failure(error) }, size))
 }
 
 // Internal platform choice behind the public Terminal.Shell view.
@@ -564,7 +564,7 @@ package func spawn_shell(size:Size = Size()) Result<Session, Error> {
             size:size
         )
     }
-    return spawn(command)
+    return (try spawn(command))
 }
 
 class ConsoleState {
@@ -728,7 +728,7 @@ class SessionContent:UI.Content {
     func update(delta:float) bool {
         var session = self.session()
         if self.polling {
-            match session.update() {
+            match (try session.update()) {
                 failure(error) => {
                     self.polling = false
                     self.on_error(error)
@@ -788,7 +788,7 @@ class SessionContent:UI.Content {
 
     private func close_session() bool {
         var session = self.session()
-        match session.terminate() {
+        match (try session.terminate()) {
             failure(error) => {
                 self.on_error(error)
                 return false
@@ -888,7 +888,7 @@ public class ShellSession {
 
     func close() Result<void, Error> {
         var session = self.session()
-        return session.terminate()
+        return (try session.terminate())
     }
 
     func is_running() bool {
@@ -954,7 +954,7 @@ public class Console:UI.CustomView {
 }
 
 func shell_session(size:Size) Session {
-    match spawn_shell(size) {
+    match (try spawn_shell(size)) {
         failure(error) => { panic(error.operation + ": " + error.detail) }
         success(session) => { return session }
     }
@@ -1048,7 +1048,7 @@ func intrinsic_size(screen:@Screen, settings:ViewSettings) Math.Vec2 {
 
 func send(session:@Session, value:str, on_error:func(@Error)) bool {
     if session.exit_status() != null || !session.is_running() { return false }
-    match session.write(value) {
+    match (try session.write(value)) {
         failure(error) => {
             if error.kind == Error.Kind.broken_pipe() { return false }
             on_error(error)

@@ -17,7 +17,8 @@ leur état dans un monde ECS. Le package ne dépend ni de `GFX.ECS`, ni de
 silex install GFX.UI.Terminal
 ```
 
-GFX.UI.Terminal demande Silex 0.39.0 ou une version plus récente.
+Cette révision en développement requiert la toolchain avec capture
+`try` des opérations `Result` et extraction lors de l’appel ordinaire.
 
 ## Ouvrir un terminal système
 
@@ -80,7 +81,7 @@ var terminal = Terminal.Shell(
     },
 )
 
-match process.close() {
+match (try process.close()) {
     failure(error) => { panic(error.operation + ": " + error.detail) }
     success => {}
 }

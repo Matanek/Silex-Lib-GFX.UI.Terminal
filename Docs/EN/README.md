@@ -17,7 +17,8 @@ an ECS world. The package depends on neither `GFX.ECS`, `GFX.Scene2D`, nor
 silex install GFX.UI.Terminal
 ```
 
-GFX.UI.Terminal requires Silex 0.39.0 or newer.
+This development revision requires the toolchain with `try` capture for
+`Result` operations and extraction on ordinary calls.
 
 ## Open a system terminal
 
@@ -80,7 +81,7 @@ var terminal = Terminal.Shell(
     },
 )
 
-match process.close() {
+match (try process.close()) {
     failure(error) => { panic(error.operation + ": " + error.detail) }
     success => {}
 }

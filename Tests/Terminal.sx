@@ -156,12 +156,12 @@ test "system session feeds the shared terminal screen" {
             environment:[Subprocess.EnvironmentChange.set("TERM", "xterm-256color")],
             size:Terminal.Size(columns:40, rows:4)
         )
-        var session = try Terminal.spawn(command)
+        var session = try Terminal.spawn(command) else error { return Result<void,Error>.failure(error) }
         var terminal = Terminal.View(session)
         var interface = UI.Runtime(terminal)
         var initial = interface.drawing(424, 104)
         assert(initial.command_count() > 0)
-        try session.write("ready\n")
+        try session.write("ready\n") else error { return Result<void,Error>.failure(error) }
         var changed = false
         var attempts = 0
         while session.exit_status() == null && attempts < 100000 {
@@ -180,9 +180,9 @@ test "system session feeds the shared terminal screen" {
         return Result<void, Error>.success()
     }
     func dispatch() Result<void, Error> {
-        let arguments = try Process.arguments()
+        let arguments = try Process.arguments() else error { return Result<void,Error>.failure(error) }
         if arguments.count() > 1 && arguments[1] == "--gfx-terminal-child" { child(); return Result<void, Error>.success() }
-        return parent(try Process.executable_path())
+        return (try parent(try Process.executable_path() else error { return Result<void,Error>.failure(error) }))
     }
-    match dispatch() { failure(error) => { panic(error.operation + ": " + error.detail) }; success => {} }
+    match (try dispatch()) { failure(error) => { panic(error.operation + ": " + error.detail) }; success => {} }
 }
