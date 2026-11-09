@@ -1,10 +1,10 @@
 {
   "sources": "Tests",
   "dependencies": {
-    "GFX": "^0.39.0",
-    "GFX.Canvas": "^0.3.0",
-    "GFX.UI": "^0.1.0",
-    "GFX.UI.Terminal": "^0.1.0",
-    "STD": "^0.20.0"
+    "GFX": "^0.41.0",
+    "GFX.Canvas": "^0.5.0",
+    "GFX.UI": "^0.3.0",
+    "GFX.UI.Terminal": "^0.3.0",
+    "STD": "^0.23.0"
   }
 }
